@@ -1,0 +1,6 @@
+{
+  "name": "image-peek",
+  "version": "0.1.0",
+  "description": "Previews pasted images in colour: above the prompt while drafting, and under the message in the transcript",
+  "types": "./types/index.d.ts"
+}

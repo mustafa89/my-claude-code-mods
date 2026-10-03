@@ -1,0 +1,6 @@
+{
+  "name": "tool-cards",
+  "version": "0.1.0",
+  "description": "Draws tool calls as boxed cards: header, highlighted command, output preview, timing footer",
+  "types": "./types/index.d.ts"
+}
