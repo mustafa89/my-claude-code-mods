@@ -7,6 +7,8 @@ const git = atom({ plugin: 'slick-bar', key: 'git' } as const, null)
 const usage = atom({ plugin: 'slick-bar', key: 'usage' } as const, null)
 const model = atom({ plugin: 'slick-bar', key: 'model' } as const, '')
 const effort = atom({ plugin: 'slick-bar', key: 'effort' } as const, '')
+// Written by the cache-warm mod; undefined while it is not loaded.
+const cache = { plugin: 'cache-warm', key: 'health' } as const
 
 const C = {
   accent: '#D97757',
@@ -204,7 +206,13 @@ export const register: Register = on => {
 
   // The bar is the footer line under the prompt, after the engine's mode label.
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const [g, u, m, eff] = await Promise.all([read($, git), read($, usage), read($, model), read($, effort)])
+    const [g, u, m, eff, { value: ch }] = await Promise.all([
+      read($, git),
+      read($, usage),
+      read($, model),
+      read($, effort),
+      $.state.get(cache),
+    ])
     if (u === null && m === '') return next(e)
 
     const { Box, Text } = $.ui.resolve(e)
@@ -264,6 +272,7 @@ export const register: Register = on => {
 
     const left: Seg[] = []
     const right: Seg[] = []
+    const now = await $.clock.now()
 
     const dot = e.props.isWorking ? '◉' : '✻'
     left.push(pill('model', C.accent, C.ink, `${dot} ${prettyModel(m)}${eff ? ` · ${eff}` : ''}`, true))
@@ -283,7 +292,34 @@ export const register: Register = on => {
         right.push(gauge('ctx', 'ctx', u.pct, 6))
         if (tok) right.push({ key: 'tok', rank: 5, w: width(tok), node: <Text key="tok" color={C.muted}>{tok}</Text> })
       }
-      const now = await $.clock.now()
+      // Prompt cache: hit share of the last request, time to expiry, misses and keepalive pings.
+      if (ch !== undefined && ch.lastAt > 0) {
+        const remain = ch.ttlMs - (now - ch.lastAt)
+        const isWarm = ch.isWarm && remain > 0
+        const tone = !isWarm ? C.blue : remain < ch.marginMs ? C.amber : C.green
+        const parts = [
+          { text: 'cache', color: C.muted },
+          { text: isWarm ? '●' : '○', color: tone },
+          ...(ch.lastRatio !== null ? [{ text: `${Math.round(ch.lastRatio * 100)}%`, color: level(100 - ch.lastRatio * 100) }] : []),
+          { text: isWarm ? countdown(remain) : 'cold', color: isWarm ? C.muted : C.blue },
+          ...(ch.misses > 0 ? [{ text: `✗${ch.misses}`, color: C.red }] : []),
+          ...(ch.pings > 0 ? [{ text: `⟳${ch.pings}`, color: C.muted }] : []),
+        ]
+        right.push({
+          key: 'cache',
+          rank: 4,
+          w: parts.reduce((n, x) => n + width(x.text), 0) + parts.length - 1,
+          node: (
+            <Box key="cache" gap={1}>
+              {parts.map((x, i) => (
+                <Text key={`cache-${i}`} color={x.color}>
+                  {x.text}
+                </Text>
+              ))}
+            </Box>
+          ),
+        })
+      }
       for (const l of u.limits) {
         const label = LIMIT_LABEL[l.kind] ?? l.kind
         const span = WINDOW_MS[l.kind]

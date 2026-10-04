@@ -1,0 +1,21 @@
+{
+  "name": "cache-warm",
+  "version": "0.1.0",
+  "description": "Keeps the prompt cache warm on idle chats with a capped fork ping, and tracks cache hits and misses",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "ttl": {
+      "type": "string",
+      "title": "Prompt cache TTL",
+      "description": "The cache lifetime this account gets: 1h on most Claude Code sessions, 5m on the API default or in usage overage",
+      "options": ["1h", "5m"],
+      "default": "1h"
+    },
+    "maxPings": {
+      "type": "number",
+      "title": "Pings per idle stretch",
+      "description": "Keepalive pings before the cache is left to expire; a typed prompt resets the count",
+      "default": 4
+    }
+  }
+}

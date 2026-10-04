@@ -1,6 +1,9 @@
 {
   "name": "slick-bar",
   "version": "0.1.0",
-  "description": "One-line session bar above the prompt: model, effort, repo, branch, context gauge, rate limits, cost",
-  "types": "./types/index.d.ts"
+  "description": "One-line session bar above the prompt: model, effort, repo, branch, context gauge, prompt cache health, rate limits, cost",
+  "types": "./types/index.d.ts",
+  "dependencies": [
+    "cache-warm"
+  ]
 }

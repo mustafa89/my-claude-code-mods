@@ -96,3 +96,36 @@ for (const surface of SURFACES) {
     }
   })
 }
+
+const CACHE = {
+  ttlMs: 3_600_000,
+  marginMs: 120_000,
+  maxPings: 4,
+  lastAt: 1,
+  isWarm: true,
+  isEnabled: true,
+  lastRatio: 0.97,
+  hits: 5,
+  misses: 2,
+  pings: 1,
+  pingsTotal: 3,
+  note: '',
+}
+
+for (const surface of SURFACES) {
+  test(`shows prompt cache health from cache-warm (${surface})`, async ($, on) => {
+    stub(on)
+    on('state.get', { plugin: 'cache-warm' }, () => ({ value: { value: CACHE, version: 1 } }))
+    const bar = await mount($, surface, 260)
+    for (const text of ['cache', '97%', '1h', '✗2', '⟳1']) {
+      expect(await bar.find({ text })).toBeDefined()
+    }
+  })
+
+  test(`marks an expired cache cold (${surface})`, async ($, on) => {
+    stub(on)
+    on('state.get', { plugin: 'cache-warm' }, () => ({ value: { value: { ...CACHE, isWarm: false }, version: 1 } }))
+    const bar = await mount($, surface, 260)
+    expect(await bar.find({ text: 'cold' })).toBeDefined()
+  })
+}
