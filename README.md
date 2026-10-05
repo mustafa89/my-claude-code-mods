@@ -1,7 +1,8 @@
 # my-claude-code-mods
 
-Four mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
-screenshots, boxed cards for tool calls, and a keepalive for the prompt cache.
+Five mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
+screenshots, boxed cards for tool calls, a keepalive for the prompt cache, and a weekly calendar of your
+sessions.
 
 Mods are Claude Code plugins built from function hooks. They need **Claude Code 2.1.287 or newer**. Mods
 are an early-access feature: the hooks API can change between releases.
@@ -12,6 +13,7 @@ are an early-access feature: the hooks API can change between releases.
 | [`image-peek`](#image-peek) | Shows a preview of a pasted image above the prompt and under the message that sent it |
 | [`tool-cards`](#tool-cards) | Draws each tool call as a boxed card: highlighted command, output preview, timing footer |
 | [`cache-warm`](#cache-warm) | Keeps the prompt cache of an idle chat warm with a small capped ping, and counts cache hits and misses |
+| [`week-calendar`](#week-calendar) | `/week` draws a calendar of the week's sessions with commits, hours per project, and a 3-line report |
 
 ## Install
 
@@ -27,7 +29,7 @@ are an early-access feature: the hooks API can change between releases.
    ```json
    {
      "env": {
-       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm"
+       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar"
      }
    }
    ```
@@ -178,6 +180,56 @@ default, or when your account runs in usage overage.
 
 `/cache-warm status` shows the cache state, `/cache-warm off` stops the pings, `/cache-warm on` starts them
 again.
+
+## week-calendar
+
+![week-calendar](docs/screenshots/week-calendar.png)
+
+*The screenshot shows a real week with every title, project and commit replaced.*
+
+`/week` builds a calendar of this week's Claude Code and Codex sessions, opens it in your browser, and prints
+a 3-line report:
+
+```
+Shipped: rate limiting, CI runner migration, deploy runbook
+Most time: api-service, 22h 27m
+Next: Prototype caching layer, Upgrade database driver
+```
+
+`/week last` shows last week; `/week -2` goes two weeks back.
+
+### What the calendar shows
+
+- **Sessions as blocks**, one colour per project. A session splits into blocks at gaps longer than 30 minutes.
+- **Commits** you made during each block, matched by your `git config user.email`.
+- **Sessions that ended without a commit**: a dashed outline and an amber dot. The sidebar lists them,
+  longest first.
+- **Active time**: hours per project and per day. Sessions that run in parallel count once.
+- **Details**: click a block to see its time, model, commits, and the first message you typed.
+
+### How it works
+
+- `bin/build.mjs` reads `~/.claude/projects/**/*.jsonl` and `~/.codex/sessions/**/*.jsonl`, runs `git log`
+  in each project, and writes one HTML file to `~/.calendar/week-<monday>.html`. Node only, no network.
+- The hook sends the week's commit subjects to Sonnet once to write the "Shipped" line.
+- The HTML file holds all its data inline and loads nothing from the network.
+
+The calendar file holds the first message of each session as plain text. It stays on your machine.
+
+### Settings
+
+`~/.calendar/config.json` is created on the first run:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `dayStartHour` | `6` | Work before this hour counts toward the previous day |
+| `gapMinutes` | `30` | A gap longer than this starts a new block |
+| `minNoCommitMinutes` | `15` | Shorter blocks are not flagged as ending without a commit |
+| `weekStart` | `mon` | `mon` or `sun` |
+| `theme` | `dark` | `dark` or `light` |
+| `accent`, `palette` | | Colours for today, the busiest day, and the projects |
+
+It needs Node and git. It opens the file with `open` on macOS or `xdg-open` on Linux.
 
 ## Development
 

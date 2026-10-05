@@ -1,0 +1,5 @@
+{
+  "name": "week-calendar",
+  "version": "0.1.0",
+  "description": "/week: weekly calendar of Claude Code and Codex sessions, with commits, no-commit sessions, hours per project and a 3-line report"
+}

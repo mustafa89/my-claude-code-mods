@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Week calendar</title>
+<style>
+:root {
+  --bg: #12151c; --panel: #171b23; --line: #262c38; --grid: #1d222c; --text: #e6e9f0; --dim: #8b93a5; --faint: #586072;
+  --warn: #f0a75b; --pop: #1b2029; --hour: 44px;
+  font-family: -apple-system, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+  font-feature-settings: "tnum" 1;
+  color-scheme: dark;
+}
+[data-theme="light"] {
+  --bg: #eef0f4; --panel: #ffffff; --line: #dde1e8; --grid: #eceef2; --text: #171a21; --dim: #5d6576; --faint: #9aa1b0;
+  --warn: #c46a12; --pop: #ffffff;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); padding: 36px 44px 48px; font-size: 14px; line-height: 1.4; }
+button { font: inherit; color: inherit; }
+
+/* header: the week, then the facts that matter */
+header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap; margin-bottom: 26px; }
+h1 { font-size: 30px; font-weight: 650; letter-spacing: -0.025em; margin: 0; line-height: 1.1; }
+h1 small { display: block; font-size: 14px; font-weight: 450; letter-spacing: 0; color: var(--dim); margin-top: 6px; }
+.facts { display: flex; gap: 28px; }
+.fact { text-align: right; }
+.fact b { display: block; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+.fact span { color: var(--dim); font-size: 12.5px; }
+.fact.open b { color: var(--warn); }
+
+main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+
+/* calendar */
+#cal { padding: 14px 14px 18px 0; overflow-x: auto; }
+.grid { display: grid; grid-template-columns: 52px repeat(7, minmax(108px, 1fr)); min-width: 840px; }
+.dh { padding: 2px 10px 12px; border-left: 1px solid transparent; }
+.dh b { font-weight: 600; font-size: 14px; }
+.dh b i { font-style: normal; color: var(--dim); font-weight: 450; margin-left: 4px; }
+.dh span { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
+.dh.today b i { color: #14161c; background: var(--accent); border-radius: 5px; padding: 0 6px; margin-left: 6px; font-weight: 600; }
+.dh.today span { color: var(--dim); }
+.gut { position: relative; }
+.gut div { position: absolute; right: 10px; color: var(--faint); font-size: 11.5px; transform: translateY(-50%); }
+.col { position: relative; border-left: 1px solid var(--line); }
+.hl { position: absolute; left: 0; right: 0; border-top: 1px solid var(--grid); }
+.hl.major { border-top-color: var(--line); }
+.now { position: absolute; left: -1px; right: 0; height: 2px; background: var(--accent); z-index: 3; }
+.now::before { content: ""; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+/* a block: tinted fill, solid rail in the project colour */
+.b { position: absolute; border: 0; border-radius: 6px; padding: 5px 7px 5px 10px; text-align: left; cursor: pointer; overflow: hidden;
+     background: color-mix(in srgb, var(--c) 20%, var(--panel)); color: var(--text); font-size: 12.5px; font-weight: 550; line-height: 1.25;
+     box-shadow: inset 3px 0 0 var(--c); }
+.b:hover { background: color-mix(in srgb, var(--c) 30%, var(--panel)); }
+.b span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 1); overflow: hidden; word-break: normal; overflow-wrap: normal; hyphens: none; }
+.b small { display: block; color: var(--dim); font-weight: 450; font-size: 11.5px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.b.tiny { padding: 0; }
+.b.tiny span, .b.tiny small { display: none; }
+/* no commit: unfilled, dashed, marked */
+.b.nc { background: color-mix(in srgb, var(--c) 6%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent);
+        outline: 1px dashed color-mix(in srgb, var(--c) 70%, transparent); outline-offset: -1px; color: var(--dim); }
+.b.nc::after { content: ""; position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.b.sel { box-shadow: inset 3px 0 0 var(--c), 0 0 0 2px var(--text); z-index: 4; }
+.b.nc.sel { box-shadow: 0 0 0 2px var(--text); }
+.b:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* sidebar */
+aside > section { padding: 22px 24px; }
+aside > section + section { border-top: 1px solid var(--line); }
+aside h2 { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; margin: 0 0 4px; }
+aside h3 { font-size: 15px; font-weight: 600; margin: 0 0 12px; display: flex; align-items: baseline; gap: 8px; }
+aside h3 em { font-style: normal; color: var(--warn); font-weight: 600; }
+.note { color: var(--faint); font-size: 12.5px; margin: 0 0 14px; }
+.stack { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 14px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 4px 0; }
+.row .n { flex: 1; color: var(--dim); min-width: 0; }
+.row .v { font-weight: 600; }
+.dot { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.ncrow { cursor: pointer; background: none; border: 0; width: 100%; text-align: left; border-radius: 6px; padding: 6px 8px; margin: 0 -8px; width: calc(100% + 16px); align-items: flex-start; }
+.ncrow:hover { background: var(--grid); }
+.ncrow .n { color: var(--text); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ncrow .v { color: var(--faint); font-weight: 450; font-size: 12px; white-space: nowrap; }
+.ncrow .dot { margin-top: 5px; background: transparent !important; outline: 1.5px dashed var(--dc); outline-offset: -1px; }
+.more { background: none; border: 0; color: var(--dim); cursor: pointer; padding: 6px 0 0; font-size: 12.5px; }
+.more:hover { color: var(--text); }
+.bars { display: flex; align-items: flex-end; gap: 10px; height: 96px; }
+.bars div { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 6px; }
+.bars i { display: block; flex: none; width: 100%; border-radius: 4px; background: color-mix(in srgb, var(--accent) 22%, var(--panel)); min-height: 2px; }
+.bars .max i { background: var(--accent); }
+.bars b { white-space: nowrap; font-size: 11.5px; color: var(--dim); font-weight: 500; }
+.bars span { font-size: 11.5px; color: var(--faint); }
+dl { display: grid; grid-template-columns: 78px 1fr; gap: 10px 12px; margin: 0; }
+dt { color: var(--faint); }
+dd { margin: 0; }
+dd.next { color: var(--warn); }
+
+/* popover */
+#pop { position: fixed; z-index: 10; width: 420px; max-width: calc(100vw - 24px); background: var(--pop); border: 1px solid var(--line);
+       border-radius: 12px; padding: 18px 20px; box-shadow: 0 18px 40px rgba(0,0,0,.35); display: none; }
+#pop h4 { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+#pop .when { color: var(--dim); margin-bottom: 12px; }
+#pop .meta { display: flex; align-items: center; gap: 10px; color: var(--dim); margin-bottom: 12px; flex-wrap: wrap; }
+#pop .tag { display: inline-flex; align-items: center; gap: 7px; background: var(--grid); color: var(--text); padding: 3px 10px; border-radius: 6px; }
+#pop .tag i { width: 8px; height: 8px; border-radius: 2px; }
+#pop .lbl { color: var(--faint); font-size: 12.5px; margin: 12px 0 6px; }
+#pop q { display: block; quotes: "“" "”"; line-height: 1.45; max-height: 9em; overflow: auto; white-space: pre-wrap; color: var(--dim); }
+#pop ul { list-style: none; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line); }
+#pop li { display: flex; gap: 12px; padding: 3px 0; }
+#pop li code { color: var(--faint); font-size: 12px; flex: none; }
+#pop .warn { color: var(--warn); margin-top: 12px; }
+.empty { color: var(--dim); padding: 40px; }
+@media (max-width: 1100px) { main { grid-template-columns: 1fr; } body { padding: 20px 16px; } .facts { gap: 18px; } }
+</style>
+</head>
+<body>
+<header id="head"></header>
+<main>
+  <div id="cal" class="panel"></div>
+  <aside class="panel">
+    <section id="proj"></section>
+    <section id="nc"></section>
+    <section id="days"></section>
+    <section>
+      <h3>Weekly report</h3>
+      <dl>
+        <dt>Shipped</dt><dd id="shipped"><!--S-->Run /week in Claude Code to fill this line.<!--/S--></dd>
+        <dt>Most time</dt><dd id="top"></dd>
+        <dt>Next</dt><dd id="next" class="next"></dd>
+      </dl>
+    </section>
+  </aside>
+</main>
+<div id="pop" role="dialog"></div>
+<script>
+const D = /*DATA*/null
+const $ = (id) => document.getElementById(id)
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+document.documentElement.dataset.theme = D.theme
+document.documentElement.style.setProperty('--accent', D.accent)
+const H = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hour'))
+const y = (m) => ((m - D.axis.from) / 60) * H
+const clock = (m) => String((D.dayStartHour + Math.floor(m / 60)) % 24).padStart(2, '0') + ':00'
+const dur = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
+const short = (m) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`)
+const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
+
+// header
+$('head').innerHTML = `<h1>${esc(D.range)}<small>${esc(D.tools)}, ${plural(D.projects.length, 'project')}</small></h1>
+  <div class="facts">
+    <div class="fact"><b>${D.total}</b><span>active time</span></div>
+    <div class="fact"><b>${D.sessions}</b><span>sessions</span></div>
+    <div class="fact"><b>${D.commits}</b><span>commits</span></div>
+    ${D.noCommit.length ? `<div class="fact open"><b>${D.noCommit.length}</b><span>ended without a commit</span></div>` : ''}
+  </div>`
+
+// calendar
+const height = y(D.axis.to)
+let g = `<div class="grid"><div></div>${D.days.map((d, i) => {
+  const [w, n] = d.label.split(' ')
+  return `<div class="dh${d.today ? ' today' : ''}"><b>${esc(w)}<i>${esc(n)}</i></b><span>${D.perDay[i] ? short(D.perDay[i]) : '—'}</span></div>`
+}).join('')}`
+g += `<div class="gut" style="height:${height}px">`
+for (let m = D.axis.from; m <= D.axis.to; m += 120) g += `<div style="top:${y(m)}px">${clock(m)}</div>`
+g += `</div>`
+const nowMin = (() => { const t = new Date(); return ((t.getHours() - D.dayStartHour + 24) % 24) * 60 + t.getMinutes() })()
+D.days.forEach((d, i) => {
+  g += `<div class="col" style="height:${height}px">`
+  for (let m = D.axis.from; m <= D.axis.to; m += 60) g += `<div class="hl${(m - D.axis.from) % 120 ? '' : ' major'}" style="top:${y(m)}px"></div>`
+  if (d.today && nowMin >= D.axis.from && nowMin <= D.axis.to) g += `<div class="now" style="top:${y(nowMin)}px"></div>`
+  for (const b of D.blocks.filter((b) => b.day === i)) {
+    const w = 100 / b.lanes, h = y(b.e) - y(b.s)
+    // Too small to read: a coloured bar with the title on hover.
+    const tiny = h < 22 || b.lanes > 2
+    const sub = h > 58 ? `<small>${b.commits.length ? plural(b.commits.length, 'commit') : b.range}</small>` : ''
+    // As many title lines as fit (16px each), leaving room for the subline.
+    const lines = Math.max(1, Math.floor((h - 10 - (sub ? 16 : 0)) / 16))
+    g += `<button class="b${b.noCommit ? ' nc' : ''}${tiny ? ' tiny' : ''}" data-id="${b.id}" title="${esc(b.title)}, ${esc(b.range)}"
+      style="--c:${b.color};--lines:${lines};top:${y(b.s) + 1}px;height:${h - 2}px;left:calc(${b.lane * w}% + 4px);width:calc(${w}% - 7px)"
+      aria-label="${esc(b.title)}, ${esc(b.when)}"><span>${esc(b.title)}</span>${sub}</button>`
+  }
+  g += `</div>`
+})
+$('cal').innerHTML = D.blocks.length ? g + `</div>` : `<div class="empty">No sessions this week. Start one in Claude Code or Codex and run /week again.</div>`
+
+// projects
+$('proj').innerHTML = `<h2>${D.total}</h2>
+  <p class="note">Active time, parallel sessions counted once. ${D.sessionTotal} of session time in total.</p>
+  <div class="stack">${D.projects.map((p) => `<i style="flex:${Math.max(p.min, 1)};background:${p.color}"></i>`).join('')}</div>
+  ${D.projects.map((p) => `<div class="row"><i class="dot" style="background:${p.color}"></i><span class="n">${esc(p.name)}</span><span class="v">${p.label}</span></div>`).join('')}`
+
+// no-commit list: the longest first, the rest behind a toggle
+const SHOW = 6
+const open = D.noCommit.slice().sort((a, b) => b.min - a.min)
+const ncRow = (x) => `<button class="row ncrow" data-id="${x.id}"><i class="dot" style="--dc:${x.color}"></i><span class="n">${esc(x.title)}</span><span class="v">${esc(x.when)}</span></button>`
+$('nc').innerHTML = `<h3>Ended without a commit<em>${D.noCommit.length}</em></h3>` +
+  (open.length ? `<p class="note">Longest first. Sessions under the threshold in config.json are left out.</p>
+    ${open.slice(0, SHOW).map(ncRow).join('')}
+    ${open.length > SHOW ? `<div id="ncmore" hidden>${open.slice(SHOW).map(ncRow).join('')}</div><button class="more" id="ncbtn">Show ${open.length - SHOW} more</button>` : ''}`
+    : `<p class="note">Every session this week ended with a commit.</p>`)
+$('ncbtn')?.addEventListener('click', (e) => {
+  const more = $('ncmore'); more.hidden = !more.hidden
+  e.currentTarget.textContent = more.hidden ? `Show ${open.length - SHOW} more` : 'Show fewer'
+})
+
+// hours per day
+const max = Math.max(1, ...D.perDay), mi = D.perDay.indexOf(max)
+$('days').innerHTML = `<h3>Hours per day</h3><div class="bars">${D.perDay.map((m, i) =>
+  `<div class="${i === mi && m ? 'max' : ''}">${i === mi && m ? `<b>${short(m)}</b>` : ''}<i style="height:${Math.round((m / max) * 52)}px" title="${dur(m)}"></i><span>${esc(D.days[i].short)}</span></div>`).join('')}</div>`
+
+// report
+$('top').textContent = D.top || 'No sessions'
+$('next').innerHTML = open.slice(0, 2).map((x) => `<div style="margin-bottom:6px">${esc(x.title)}</div>`).join('') || '<span style="color:var(--dim)">Nothing left open</span>'
+
+// popover
+const pop = $('pop')
+let sel = null
+function show(id, anchor) {
+  const b = D.blocks[id]
+  sel?.classList.remove('sel')
+  sel = document.querySelector(`.b[data-id="${id}"]`); sel?.classList.add('sel')
+  const commits = b.commits.slice(0, 3).map((c) => `<li><code>${esc(c.h)}</code><span>${esc(c.s)}</span></li>`).join('')
+  pop.innerHTML = `<h4>${esc(b.title)}</h4><div class="when">${esc(b.when)}, ${b.dur}</div>
+    <div class="meta"><span class="tag"><i style="background:${b.color}"></i>${esc(b.project)}</span><span>${esc(b.tool)}${b.model ? ', ' + esc(b.model) : ''}</span></div>
+    ${b.isGit ? `<div><b>${b.commits.length}</b> commits, <b>${b.files}</b> files changed</div>` : `<div style="color:var(--dim)">Not a git repository</div>`}
+    ${b.firstMsg ? `<div class="lbl">First message</div><q>${esc(b.firstMsg)}</q>` : ''}
+    ${commits ? `<ul>${commits}${b.commits.length > 3 ? `<li style="color:var(--faint)">${b.commits.length - 3} more</li>` : ''}</ul>` : ''}
+    ${b.noCommit ? `<div class="warn">Ended without a commit</div>` : ''}`
+  pop.style.display = 'block'
+  const r = (sel || anchor).getBoundingClientRect(), pw = pop.offsetWidth, ph = pop.offsetHeight
+  let left = r.right + 12; if (left + pw > innerWidth - 12) left = Math.max(12, r.left - pw - 12)
+  pop.style.left = left + 'px'
+  pop.style.top = Math.max(12, Math.min(r.top, innerHeight - ph - 12)) + 'px'
+  sel?.scrollIntoView({ block: 'nearest' })
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-id]')
+  if (t) return show(+t.dataset.id, t)
+  if (!pop.contains(e.target)) { pop.style.display = 'none'; sel?.classList.remove('sel') }
+})
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { pop.style.display = 'none'; sel?.classList.remove('sel') } })
+</script>
+</body>
+</html>
