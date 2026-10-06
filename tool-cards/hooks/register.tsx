@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Register, RenderElement } from 'claude-code'
+import type { Elements, Hook, Register, RenderElement } from 'claude-code'
 
 const times = atom({ plugin: 'tool-cards', key: 'times' } as const, {})
 const expanded = atom({ plugin: 'tool-cards', key: 'expanded' } as const, {})
@@ -105,6 +105,274 @@ function summary(tool: string, input: Record<string, unknown>, cwd: string) {
   }
 }
 
+type Api = Parameters<Hook<'ui.render'>>[0]
+type UI = Elements['terminal']
+type Line = { text: string; isErr: boolean }
+
+function toggle($: Api, ui: UI, id: string, isFull: boolean, label: string) {
+  const { Button } = ui
+  return (
+    <Button
+      key={`toggle-${id}`}
+      plain
+      dimColor
+      label={label}
+      onPress={() => update($, expanded, m => ({ ...m, [id]: !isFull }))}
+    />
+  )
+}
+
+// Output lines with a preview cut and the expand button; a preview of 0 starts folded.
+function outputBlock($: Api, ui: UI, id: string, shown: Line[], isFull: boolean, preview: number) {
+  const { Box, Text } = ui
+  const limit = isFull ? FULL_LINES : preview
+  const hidden = shown.length - Math.min(shown.length, limit)
+  const label = isFull ? '▴ collapse' : limit === 0 ? `▾ output · ${shown.length} lines` : '▾ expand'
+  return (
+    <Box key="out" flexDirection="column">
+      {shown.length === 0 ? <Text color={C.muted}>(no output)</Text> : null}
+      {shown.slice(0, limit).map((l, i) => (
+        <Text key={`o${i}`} color={l.isErr ? C.fail : C.text} wrap={isFull ? 'wrap' : 'truncate-end'}>
+          {l.text === '' ? ' ' : l.text}
+        </Text>
+      ))}
+      {shown.length > preview ? (
+        <Box key="more" gap={2}>
+          {limit > 0 && hidden > 0 ? <Text color={C.muted}>{`… ${hidden} more lines`}</Text> : null}
+          {toggle($, ui, id, isFull, label)}
+        </Box>
+      ) : null}
+    </Box>
+  )
+}
+
+// The text an MCP result carries: its text blocks, JSON pretty-printed.
+function mcpText(out: unknown): string {
+  if (typeof out === 'string') {
+    const t = out.trim()
+    if (/^[[{]/.test(t)) {
+      try {
+        return JSON.stringify(JSON.parse(t), null, 2)
+      } catch {}
+    }
+    return out
+  }
+  if (Array.isArray(out)) {
+    return out
+      .map(b => {
+        const block = (b ?? {}) as { type?: unknown; text?: unknown }
+        return block.type === 'text' ? mcpText(String(block.text ?? '')) : `[${String(block.type ?? 'block')}]`
+      })
+      .join('\n')
+  }
+  const content = out && typeof out === 'object' ? (out as { content?: unknown }).content : undefined
+  if (Array.isArray(content)) return mcpText(content)
+  return out === undefined ? '' : JSON.stringify(out, null, 2)
+}
+
+type Hunk = { oldStart: number; newStart: number; lines: string[] }
+type Span = { text: string; hot: boolean }
+type Side = { n: number; text: string; kind: 'del' | 'add' | 'ctx'; spans?: Span[] }
+type Gap = { gap: true }
+type Row = { left?: Side; right?: Side } | Gap
+
+const DIFF_PREVIEW = 16
+// Below this many columns per side, old stacks over new.
+const SPLIT_MIN = 40
+const BAR = 20
+const DIFF = {
+  del: { num: C.fail, bg: '#3A2228', hot: '#7A2F3A' },
+  add: { num: '#A6D86E', bg: '#2C3A1F', hot: '#4E6E26' },
+  ctx: { num: C.muted, bg: undefined, hot: undefined },
+}
+// Word highlights skip long lines (the LCS is quadratic) and pairs that share too little to read as an edit.
+const WORD_TOKENS = 300
+const WORD_SHARED = 0.3
+
+// Marks the words that differ between a removed line and the line that replaced it.
+function wordSpans(a: string, b: string): [Span[], Span[]] | undefined {
+  const x = a.match(/\w+|\s+|[^\w\s]/g) ?? []
+  const y = b.match(/\w+|\s+|[^\w\s]/g) ?? []
+  if (x.length === 0 || y.length === 0 || x.length > WORD_TOKENS || y.length > WORD_TOKENS) return undefined
+  const dp = Array.from({ length: x.length + 1 }, () => new Array<number>(y.length + 1).fill(0))
+  for (let i = x.length - 1; i >= 0; i--)
+    for (let j = y.length - 1; j >= 0; j--) dp[i]![j] = x[i] === y[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
+  const keepX = new Array<boolean>(x.length).fill(false)
+  const keepY = new Array<boolean>(y.length).fill(false)
+  for (let i = 0, j = 0; i < x.length && j < y.length; ) {
+    if (x[i] === y[j]) {
+      keepX[i++] = true
+      keepY[j++] = true
+    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) i++
+    else j++
+  }
+  const shared = x.filter((t, i) => keepX[i] && /\S/.test(t)).length
+  const total = Math.max(x.filter(t => /\S/.test(t)).length, y.filter(t => /\S/.test(t)).length)
+  if (total === 0 || shared / total < WORD_SHARED) return undefined
+  const spans = (tokens: string[], keep: boolean[]) =>
+    tokens.reduce<Span[]>((out, text, i) => {
+      // Whitespace between two changed words joins them into one highlight.
+      const hot = !keep[i] || (/^\s+$/.test(text) && !keep[i - 1] && !keep[i + 1] && i > 0 && i < tokens.length - 1)
+      const last = out[out.length - 1]
+      if (last && last.hot === hot) last.text += text
+      else out.push({ text, hot })
+      return out
+    }, [])
+  return [spans(x, keepX), spans(y, keepY)]
+}
+
+function patchOf(output: unknown) {
+  const p = output && typeof output === 'object' ? (output as { structuredPatch?: unknown }).structuredPatch : undefined
+  return Array.isArray(p) && p.length > 0 ? (p as Hunk[]) : undefined
+}
+
+// Pairs a patch side by side: context on both sides, each run of removals beside the additions that replaced it.
+function splitRows(patch: Hunk[]) {
+  const rows: Row[] = []
+  let adds = 0
+  let dels = 0
+  patch.forEach((h, i) => {
+    if (i > 0) rows.push({ gap: true })
+    let o = h.oldStart
+    let n = h.newStart
+    let left: Side[] = []
+    let right: Side[] = []
+    const flush = () => {
+      for (let k = 0; k < Math.max(left.length, right.length); k++) {
+        const l = left[k]
+        const r = right[k]
+        const spans = l && r ? wordSpans(l.text, r.text) : undefined
+        rows.push(spans ? { left: { ...l!, spans: spans[0] }, right: { ...r!, spans: spans[1] } } : { left: l, right: r })
+      }
+      left = []
+      right = []
+    }
+    for (const line of h.lines) {
+      const text = line.slice(1).replace(/\t/g, '  ')
+      if (line[0] === '-') {
+        left.push({ n: o++, text, kind: 'del' })
+        dels++
+      } else if (line[0] === '+') {
+        right.push({ n: n++, text, kind: 'add' })
+        adds++
+      } else if (line[0] !== '\\') {
+        flush()
+        rows.push({ left: { n: o++, text, kind: 'ctx' }, right: { n: n++, text, kind: 'ctx' } })
+      }
+    }
+    flush()
+  })
+  return { rows, adds, dels }
+}
+
+// The same rows one above the other: removals, then their additions, context once.
+function stackRows(rows: Row[]) {
+  const out: (Side | Gap)[] = []
+  let pending: Side[] = []
+  const flush = () => {
+    out.push(...pending)
+    pending = []
+  }
+  for (const r of rows) {
+    if ('gap' in r) {
+      flush()
+      out.push(r)
+    } else if (r.left?.kind === 'ctx') {
+      flush()
+      out.push(r.left)
+    } else {
+      if (r.left) out.push(r.left)
+      if (r.right) pending.push(r.right)
+    }
+  }
+  flush()
+  return out
+}
+
+function cell(ui: UI, side: Side | undefined, w: number, key: string) {
+  const { Box, Text } = ui
+  if (!side) return <Box key={key} width={w} flexShrink={0} />
+  const tone = DIFF[side.kind]
+  return (
+    <Box key={key} width={w} flexShrink={0}>
+      <Box width={6} flexShrink={0}>
+        <Text color={tone.num}>{`${side.kind === 'ctx' ? ' ' : '▌'}${String(side.n).padStart(4)}`}</Text>
+      </Box>
+      <Box flexGrow={1} {...(tone.bg ? { backgroundColor: tone.bg } : {})}>
+        <Text color={C.text} wrap="wrap">
+          {side.text === '' ? ' ' : side.spans ? side.spans.map((sp, i) => (
+            <Text key={`w${i}`} {...(sp.hot && tone.hot ? { backgroundColor: tone.hot } : {})}>
+              {sp.text}
+            </Text>
+          )) : side.text}
+        </Text>
+      </Box>
+    </Box>
+  )
+}
+
+function diffBlock($: Api, ui: UI, id: string, patch: Hunk[], inner: number, isFull: boolean) {
+  const { Box, Text } = ui
+  const { rows, adds, dels } = splitRows(patch)
+  const half = Math.floor((inner - 1) / 2)
+  const isSplit = half >= SPLIT_MIN
+  const all: (Row | Side)[] = isSplit ? rows : stackRows(rows)
+  const limit = isFull ? FULL_LINES : DIFF_PREVIEW
+  const green = adds + dels > 0 ? Math.round((BAR * adds) / (adds + dels)) : 0
+  return [
+    <Box key="diffhead" gap={1}>
+      <Text color={C.muted}>↳ diff</Text>
+      <Text color={DIFF.add.num}>{`+${adds}`}</Text>
+      <Text color={DIFF.del.num}>{`-${dels}`}</Text>
+      <Text color={C.muted}>{isSplit ? 'split' : 'stacked'}</Text>
+      <Text>
+        <Text color={C.muted}>[</Text>
+        <Text color={DIFF.add.num}>{'━'.repeat(green)}</Text>
+        <Text color={DIFF.del.num}>{'━'.repeat(BAR - green)}</Text>
+        <Text color={C.muted}>]</Text>
+      </Text>
+    </Box>,
+    <Box key="diff" flexDirection="column">
+      {isSplit ? (
+        <Box key="cols" gap={1}>
+          <Box width={half} flexShrink={0}>
+            <Text color={C.muted}>{'  old'}</Text>
+          </Box>
+          <Text color={C.muted}>{'  new'}</Text>
+        </Box>
+      ) : null}
+      {all.slice(0, limit).map((r, i) =>
+        'gap' in r ? (
+          <Text key={`r${i}`} color={C.muted}>
+            {'    ⋯'}
+          </Text>
+        ) : 'kind' in r ? (
+          cell(ui, r, inner, `r${i}`)
+        ) : (
+          <Box key={`r${i}`} gap={1}>
+            {cell(ui, r.left, half, 'l')}
+            {cell(ui, r.right, half, 'r')}
+          </Box>
+        ),
+      )}
+      {all.length > DIFF_PREVIEW ? (
+        <Box key="more" gap={2}>
+          {all.length > limit ? <Text color={C.muted}>{`… ${all.length - limit} more rows`}</Text> : null}
+          {toggle($, ui, id, isFull, isFull ? '▴ collapse' : '▾ expand')}
+        </Box>
+      ) : null}
+    </Box>,
+  ]
+}
+
+const isMcp = (tool: string) => tool.startsWith('mcp__')
+
+// Calls whose card draws the result, so the engine's own result block goes.
+function ownsResult(tool: string, output: unknown, isErrored: boolean) {
+  if (tool === 'Bash' || isMcp(tool)) return true
+  return (tool === 'Edit' || tool === 'Write') && !isErrored && patchOf(output) !== undefined
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -139,16 +407,17 @@ export const register: Register = on => {
     e.surface === 'terminal' && !e.props.isExpanded ? next({ ...e, props: { ...e.props, isExpanded: true } }) : next(e),
   )
 
-  // Bash cards carry their own output, so its separate result block goes.
+  // Bash, MCP and diff cards carry their own output, so the separate result block goes.
   on('ui.render', { component: 'ToolResult' }, ($, e, next) => {
-    if (e.props.tool !== 'Bash' || e.surface !== 'terminal') return next(e)
+    if (e.surface !== 'terminal' || !ownsResult(e.props.tool, e.props.output, e.props.isErrored)) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box />
   })
 
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     if (e.surface !== 'terminal') return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text } = ui
     const p = e.props
     const input = (p.input ?? {}) as Record<string, unknown>
     const isBash = p.tool === 'Bash'
@@ -207,30 +476,8 @@ export const register: Register = on => {
           ...lines(stdout).map(text => ({ text, isErr: p.isErrored && typeof out === 'string' })),
           ...lines(stderr).map(text => ({ text, isErr: true })),
         ]
-        const limit = isFull ? FULL_LINES : PREVIEW_LINES
         body.push(rule)
-        body.push(
-          <Box key="out" flexDirection="column">
-            {shown.length === 0 ? <Text color={C.muted}>(no output)</Text> : null}
-            {shown.slice(0, limit).map((l, i) => (
-              <Text key={`o${i}`} color={l.isErr ? C.fail : C.text} wrap={isFull ? 'wrap' : 'truncate-end'}>
-                {l.text === '' ? ' ' : l.text}
-              </Text>
-            ))}
-            {shown.length > PREVIEW_LINES ? (
-              <Box key="more" gap={2}>
-                {shown.length > limit ? <Text color={C.muted}>{`… ${shown.length - limit} more lines`}</Text> : null}
-                <Button
-                  key={`toggle-${p.tool_use_id}`}
-                  plain
-                  dimColor
-                  label={isFull ? '▴ collapse' : '▾ expand'}
-                  onPress={() => update($, expanded, m => ({ ...m, [p.tool_use_id]: !isFull }))}
-                />
-              </Box>
-            ) : null}
-          </Box>,
-        )
+        body.push(outputBlock($, ui, p.tool_use_id, shown, isFull, PREVIEW_LINES))
         const total = `${stdout}\n${stderr}`.trim()
         if (total) footer.push(`✎ ${words(total)}`)
       }
@@ -243,6 +490,17 @@ export const register: Register = on => {
             {line}
           </Text>,
         )
+      }
+      const patch = (p.tool === 'Edit' || p.tool === 'Write') && !p.isErrored ? patchOf(p.output) : undefined
+      if (patch) {
+        body.push(rule)
+        body.push(...diffBlock($, ui, p.tool_use_id, patch, inner, isFull))
+      } else if (isMcp(p.tool) && !p.isRunning) {
+        const text = mcpText(p.output)
+        const isErr = p.isErrored || (p.output as { isError?: unknown } | undefined)?.isError === true
+        body.push(rule)
+        body.push(outputBlock($, ui, p.tool_use_id, lines(text).map(t => ({ text: t, isErr })), isFull, 0))
+        if (text.trim()) footer.push(`✎ ${words(text)}`)
       }
     }
 

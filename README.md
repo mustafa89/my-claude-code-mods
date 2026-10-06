@@ -103,8 +103,12 @@ Every tool call becomes a card:
 - **Header**: tool name and status: `✓` done, `◌` running, `✗` error, `⊘` interrupted. The command's
   description follows.
 - **Bash**: the command with syntax colours, then the first 5 lines of output (errors in red).
+- **Edit and Write**: a split diff, old on the left and new on the right, with line numbers, red and green
+  rows, and the changed words highlighted. A `+N -M` header with a bar shows the size of the change. Narrow
+  terminals stack old over new. A new file from Write keeps Claude Code's own view.
+- **MCP tools**: the arguments, then the output folded behind `▾ output · N lines`. JSON is indented;
+  errors show in red.
 - **Other tools**: one line saying what the call acted on, for example `src/cart/total.js:10-30` for a Read.
-  Results that Claude Code draws itself, such as edit diffs, stay under the card.
 - **Footer**: how long the call took, how many words it printed, and the Bash timeout if one was set.
 
 Claude Code normally folds runs of reads and searches into one line (`Searched for 2 patterns`).
@@ -112,9 +116,9 @@ tool-cards unfolds them, so each call gets its own card.
 
 ### Expanding output
 
-- Click `▾ expand` on a card to see all of its output (up to 400 lines). Clicks reach the card in
+- Click `▾ expand` on a card to see all of its output or diff (up to 400 lines). Clicks reach the card in
   fullscreen mode.
-- `/cards full` expands every card; `/cards compact` goes back to the 5-line preview; `/cards` switches
+- `/cards full` expands every card; `/cards compact` goes back to the preview (5 output lines, 16 diff rows, MCP output folded); `/cards` switches
   between the two.
 
 `Ctrl+o` does not expand a card. Claude Code does not tell mods when the `Ctrl+o` view is open.
