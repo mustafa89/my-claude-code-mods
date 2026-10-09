@@ -7,9 +7,9 @@ import { INPUT_SCHEMA, parseSpec, type DiagramSpec } from './spec'
 const PANE = 'diagram'
 const RASTER = 'diagram'
 const TOOL = 'mcp__diagram-mod__show_diagram'
-const FRAME_MS = 33 // about 30 fps
+const FRAME_MS = 16 // about 60 fps
 const CARD_MARGIN = 8 // a tool card's border and padding around the row (tool-cards)
-const MOUNT_WAIT_FRAMES = 300 // stop an inline timer whose row never mounts (10 s)
+const MOUNT_WAIT_FRAMES = 600 // stop an inline timer whose row never mounts (10 s)
 
 const DESCRIPTION = [
   'Show an animated box-and-arrow diagram in the terminal.',
@@ -23,7 +23,19 @@ type Shown = { spec: DiagramSpec; layout: Layout }
 
 // inline: the tool's transcript row draws the diagram; only the newest row animates.
 const drawn = new Map<string, Shown>()
-let live: { id: string; tick: number; timer?: Timer; isMounted: boolean; misses: number } | undefined
+type Live = {
+  id: string
+  tick: number
+  timer?: Timer
+  isMounted: boolean
+  misses: number
+  /** Unmounted (folded, scrolled away): only a new drawing of the row starts it again. */
+  isGone: boolean
+  isSending: boolean
+  last?: Uint32Array
+}
+let live: Live | undefined
+const KEEP_DRAWN = 20
 let isBusy = false
 
 // pane: one pane the tool opens; q or Esc closes it.
@@ -64,13 +76,17 @@ export const register: Register = (on, options) => {
     if ((e.viewport?.columns ?? Infinity) - CARD_MARGIN < row.layout.width) return next(e)
 
     const isLive = live?.id === e.requestId
-    if (isLive) {
+    if (isLive && live) {
       // Pause off screen; `undefined` means the surface does not say, so keep going.
       if (e.props.onScreen === null) stopInline()
-      else startInline($)
+      else {
+        live.isGone = false
+        live.last = undefined
+        startInline($)
+      }
     }
     const { Raster } = $.ui.resolve(e)
-    const cells = encode(paint(row.spec, row.layout, live?.tick ?? 0, isLive && !isBusy))
+    const cells = encode(paint(row.spec, row.layout, (live?.tick ?? 0) * FRAME_MS, isLive && !isBusy))
     return <Raster key={RASTER} columns={row.layout.width} rows={row.layout.height} cells={cells} />
   })
 
@@ -100,7 +116,7 @@ export const register: Register = (on, options) => {
     const { width, height } = shown.layout
     return (
       <Box flexDirection="column">
-        <Raster key={RASTER} columns={width} rows={height} cells={encode(paint(shown.spec, shown.layout, tick))} />
+        <Raster key={RASTER} columns={width} rows={height} cells={encode(paint(shown.spec, shown.layout, tick * FRAME_MS))} />
         <Button key="close" hotkey="q" plain onPress={() => {
             forgetPane()
             return $.ui.close({ id: PANE })
@@ -124,7 +140,8 @@ async function callInline($: EngineInterface, e: Args<'tool.call'>): Promise<Too
   const row = { spec: parsed.spec, layout: layout(parsed.spec) }
   stopInline()
   drawn.set(e.tool_use_id, row)
-  live = { id: e.tool_use_id, tick: 0, isMounted: false, misses: 0 }
+  for (const id of [...drawn.keys()].slice(0, -KEEP_DRAWN)) drawn.delete(id)
+  live = { id: e.tool_use_id, tick: 0, isMounted: false, misses: 0, isGone: false, isSending: false }
   startInline($)
   return {
     result: `Drawn in the transcript row above; it animates once this turn ends. Do not repeat it in the reply. Static version for reference:\n\n${toText(row.spec, row.layout)}`,
@@ -134,21 +151,45 @@ async function callInline($: EngineInterface, e: Args<'tool.call'>): Promise<Too
 function startInline($: EngineInterface) {
   const current = live
   const row = current && drawn.get(current.id)
-  if (!current || !row || current.timer || isBusy) return
-  current.isMounted = false
+  if (!current || !row || current.timer || current.isGone || isBusy) return
   current.misses = 0
   current.timer = $.clock.every(FRAME_MS, () => {
     current.tick++
-    void $.ui.blit({ requestId: current.id, key: RASTER, cells: encode(paint(row.spec, row.layout, current.tick)) }).then(r => {
-      if (!r.deny) current.isMounted = true
-      else if (current.isMounted || ++current.misses > MOUNT_WAIT_FRAMES) stopInline()
-    })
+    // One frame in flight at a time, and none when nothing on screen changed.
+    if (current.isSending) return
+    const grid = paint(row.spec, row.layout, current.tick * FRAME_MS)
+    if (current.last && sameCells(current.last, grid.words)) return
+    current.last = grid.words
+    current.isSending = true
+    void $.ui
+      .blit({ requestId: current.id, key: RASTER, cells: encode(grid) })
+      .then(r => {
+        if (!r.deny) current.isMounted = true
+        else if (current.isMounted || ++current.misses > MOUNT_WAIT_FRAMES) stopTimer(current, true)
+      })
+      .catch(() => stopTimer(current, true))
+      .finally(() => {
+        current.isSending = false
+      })
   })
 }
 
+/** Stops this diagram's own timer; a late answer for an older diagram never touches the newer one. */
+function stopTimer(target: Live, isGone = false) {
+  target.timer?.cancel()
+  target.timer = undefined
+  if (isGone) target.isGone = true
+  target.last = undefined
+}
+
 function stopInline() {
-  live?.timer?.cancel()
-  if (live) live.timer = undefined
+  if (live) stopTimer(live)
+}
+
+function sameCells(a: Uint32Array, b: Uint32Array): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
 }
 
 async function callPane($: EngineInterface, e: Args<'tool.call'>): Promise<ToolCallResult> {
@@ -179,7 +220,7 @@ async function callPane($: EngineInterface, e: Args<'tool.call'>): Promise<ToolC
   timer = $.clock.every(FRAME_MS, () => {
     if (!shown) return stopPane()
     tick++
-    void $.ui.blit({ requestId: PANE, key: RASTER, cells: encode(paint(shown.spec, shown.layout, tick)) })
+    void $.ui.blit({ requestId: PANE, key: RASTER, cells: encode(paint(shown.spec, shown.layout, tick * FRAME_MS)) })
   })
   return { result: `Showing "${parsed.spec.title}" in the diagram pane (q or Esc closes it).` }
 }

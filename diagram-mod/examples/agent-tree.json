@@ -1,0 +1,78 @@
+{
+  "title": "Agent tree",
+  "subtitle": "A main session plans, a dispatcher fans work out, an advisor stays on call",
+  "legend": [
+    { "label": "advisor", "color": "magenta" },
+    { "label": "main", "color": "orange" },
+    { "label": "workers", "color": "green" },
+    { "label": "router", "color": "cyan" }
+  ],
+  "caption": "Plan on high. Delegate on medium. Keep the advisor on call.",
+  "nodes": [
+    { "id": "advisor", "label": "Advisor · on call", "side": "left", "color": "magenta",
+      "detail": ["reads the full session", "never writes code"],
+      "items": ["before a plan", "error repeats", "before done"], "status": "standby", "tone": "dim" },
+    { "id": "main", "label": "Main session", "color": "orange", "detail": ["plans + decides"], "status": "planning", "tone": "run" },
+    { "id": "router", "label": "Router", "color": "cyan",
+      "meters": [
+        { "label": "which file", "value": 0.8, "text": "sharp", "tone": "ok" },
+        { "label": "which tool", "value": 0.45, "text": "split", "tone": "warn" },
+        { "label": "retry/stop", "value": 0.82, "text": "sharp", "tone": "ok" }
+      ] },
+    { "id": "dispatch", "label": "Dispatcher", "color": "green", "detail": ["3x swarm · 340 t/s"], "spark": true },
+    { "id": "worker", "label": "Worker", "color": "green", "detail": ["edits + tests"], "status": "queued", "tone": "dim" },
+    { "id": "explorer", "label": "Explorer", "color": "green", "detail": ["reads code"], "status": "queued", "tone": "dim" },
+    { "id": "research", "label": "Researcher", "color": "green", "detail": ["looks up docs"], "status": "queued", "tone": "dim" },
+    { "id": "review", "label": "Back to main", "color": "orange", "detail": ["review + verify"], "status": "waiting", "tone": "dim" }
+  ],
+  "edges": [
+    { "from": "advisor", "to": "main", "label": "advice" },
+    { "from": "main", "to": "router" },
+    { "from": "router", "to": "dispatch" },
+    { "from": "dispatch", "to": "worker" },
+    { "from": "dispatch", "to": "explorer" },
+    { "from": "dispatch", "to": "research" },
+    { "from": "worker", "to": "review" },
+    { "from": "explorer", "to": "review" },
+    { "from": "research", "to": "review" },
+    { "from": "advisor", "to": "worker", "id": "advise-worker" }
+  ],
+  "packets": [
+    { "edge": "advisor->main", "color": "magenta", "speed": 0.7 },
+    { "edge": "advise-worker", "color": "magenta", "speed": 0.7 }
+  ],
+  "counters": { "forks": 1381, "tokens": 403000 },
+  "steps": [
+    { "duration": 2200, "active": ["advisor->main"],
+      "nodes": { "advisor": { "highlight": 0, "status": "advising", "tone": "run" } },
+      "log": [{ "actor": "advisor", "text": "consult before plan: verify auth claims", "status": "[on call]", "tone": "info" }],
+      "counters": { "forks": 1394 } },
+    { "duration": 2200, "active": ["main->router", "router->dispatch"],
+      "nodes": { "advisor": { "status": "standby", "tone": "dim" }, "main": { "status": "delegating", "tone": "info" },
+                 "router": { "meters": [0.86, 0.48, 0.83] } },
+      "log": [{ "actor": "router", "text": "which file -> src/auth.ts", "status": "p=0.86 sharp", "tone": "ok" }],
+      "counters": { "forks": 1413 } },
+    { "duration": 2600, "active": ["dispatch->worker", "dispatch->explorer", "dispatch->research"],
+      "nodes": { "worker": { "status": "running", "tone": "run" }, "explorer": { "status": "running", "tone": "run" },
+                 "research": { "status": "running", "tone": "run" } },
+      "log": [
+        { "actor": "explorer", "text": "scanned 23 files in the repo", "status": "[ok]", "tone": "ok" },
+        { "actor": "worker", "text": "editing JWT fixture specs", "status": "[running]", "tone": "info" }
+      ],
+      "counters": { "forks": 1444, "tokens": 455000 } },
+    { "duration": 2600, "active": ["advise-worker"],
+      "nodes": { "worker": { "status": "test failed: exit 1", "tone": "err" }, "explorer": { "status": "AST clean", "tone": "ok" },
+                 "advisor": { "highlight": 1, "status": "advising", "tone": "run" }, "router": { "meters": [0.86, 0.5, 0.84] } },
+      "log": [
+        { "actor": "worker", "text": "pytest test/auth.spec.ts", "status": "exit 1", "tone": "err" },
+        { "actor": "advisor", "text": "error repeats: mock the system clock", "status": "[advice]", "tone": "warn" }
+      ],
+      "counters": { "forks": 1476 } },
+    { "duration": 2400, "active": ["worker->review", "explorer->review", "research->review"],
+      "nodes": { "worker": { "status": "14/14 pass", "tone": "ok" }, "research": { "status": "specs ok", "tone": "ok" },
+                 "advisor": { "highlight": 2, "status": "verified", "tone": "ok" }, "review": { "status": "diff clean", "tone": "ok" },
+                 "main": { "status": "verified", "tone": "ok" } },
+      "log": [{ "actor": "worker", "text": "re-run: 14/14 tests pass", "status": "[passed]", "tone": "ok" }],
+      "counters": { "forks": 1538, "tokens": 512000 } }
+  ]
+}

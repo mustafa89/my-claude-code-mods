@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { describe, expect, mock, test, type Engine } from 'claude-code/testing'
 
-import { PACKET } from '../hooks/render'
+import { BRAILLE } from '../hooks/render'
 
 const TOOL = 'mcp__diagram-mod__show_diagram'
 const PANE_PROPS = {
@@ -43,38 +43,40 @@ function world(on: On, placed: boolean) {
   return { clock, blits, blitTargets, closed }
 }
 
-/** Where the packet glyph sits in a blit's cells, as a cell index. */
-function packetAt(cells: string): number {
+/** The packet's braille cells in a blit, as `index:glyph` pairs; empty when no packet shows. */
+function packetAt(cells: string): string {
   const bin = atob(cells)
   const bytes = Uint8Array.from(bin, ch => ch.charCodeAt(0))
   const words = new Uint32Array(bytes.buffer)
-  for (let i = 0; i < words.length; i += 3) if (words[i] === PACKET.codePointAt(0)) return i / 3
-  return -1
+  const found: string[] = []
+  for (let i = 0; i < words.length; i += 3) if ((words[i]! & 0xff00) === BRAILLE) found.push(`${i / 3}:${words[i]}`)
+  return found.join(' ')
 }
 
 const PANE_MODE = { options: { display: 'pane' } }
 
 describe('register: pane', () => {
-  test('each tick blits a frame and the packet moves a cell every two frames', PANE_MODE, async ($, on) => {
+  test('each tick blits a frame with the packet a little further on', PANE_MODE, async ($, on) => {
     const { clock, blits } = world(on, true)
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/w' })
     const ran = await $.tool.call({ tool: TOOL, ...SPEC })
     expect(String(ran.result)).toContain('diagram pane')
 
-    for (let i = 0; i < 4; i++) await clock.advance(33)
+    for (let i = 0; i < 4; i++) await clock.advance(16)
     expect(blits).toHaveLength(4)
-    // Half a cell per frame: the head moves on every second frame.
+    // A quarter cell per frame: the braille dots shift on every frame.
     const at = blits.map(packetAt)
-    expect(at[0]).toBeGreaterThan(-1)
+    expect(at[0]).not.toBe('')
     expect(at[1]).not.toBe(at[0])
-    expect(at[3]).not.toBe(at[1])
+    expect(at[2]).not.toBe(at[1])
+    expect(at[3]).not.toBe(at[2])
   })
 
   test('closing the pane with q clears the timer', PANE_MODE, async ($, on) => {
     const { clock, blits, closed } = world(on, true)
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/w' })
     await $.tool.call({ tool: TOOL, ...SPEC })
-    await clock.advance(33)
+    await clock.advance(16)
     expect(blits).toHaveLength(1)
 
     const ui = await $.ui.mount({ plugin: 'diagram-mod', surface: 'terminal', component: 'Pane', requestId: 'diagram', props: PANE_PROPS })
@@ -141,8 +143,8 @@ describe('register: inline', () => {
 
     const row = await mountRow($, 'tu1')
     expect(await row.find({ type: 'Raster', key: 'diagram' })).toBeDefined()
-    await clock.advance(33)
-    await clock.advance(33)
+    await clock.advance(16)
+    await clock.advance(16)
     expect(blitTargets).toEqual(['tu1', 'tu1'])
     expect(packetAt(blits[1]!)).not.toBe(packetAt(blits[0]!))
   })
@@ -152,7 +154,7 @@ describe('register: inline', () => {
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/w' })
     await $.tool.call({ tool: TOOL, tool_use_id: 'tu1', ...SPEC })
     const row = await mountRow($, 'tu1', { first: 0, last: 10, of: 20 })
-    await clock.advance(33)
+    await clock.advance(16)
     expect(blits).toHaveLength(1)
 
     await row.redraw(rowProps('tu1', null))
@@ -160,7 +162,7 @@ describe('register: inline', () => {
     expect(blits).toHaveLength(1)
 
     await row.redraw(rowProps('tu1', { first: 0, last: 10, of: 20 }))
-    await clock.advance(33)
+    await clock.advance(16)
     expect(blits).toHaveLength(2)
   })
 
@@ -171,7 +173,7 @@ describe('register: inline', () => {
     await $.tool.call({ tool: TOOL, tool_use_id: 'tu2', ...SPEC })
     const old = await mountRow($, 'tu1')
     expect(await old.find({ type: 'Raster' })).toBeDefined()
-    await clock.advance(33 * 3)
+    await clock.advance(16 * 3)
     expect(new Set(blitTargets)).toEqual(new Set(['tu2']))
   })
 
@@ -187,7 +189,7 @@ describe('register: inline', () => {
     expect(blits).toHaveLength(0)
 
     await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
-    await clock.advance(33)
+    await clock.advance(16)
     expect(blits).toHaveLength(1)
   })
 

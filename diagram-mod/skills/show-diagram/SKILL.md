@@ -25,6 +25,25 @@ Call the `show_diagram` tool (from this mod) when the user asks for a diagram, a
 - **`log`** holds 2-5 lines that tell the story in order. They type out under the diagram.
 - Do not give coordinates. The layout is top to bottom, computed from the edges.
 
+## Telling a story with steps
+
+For a flow that happens in order (a request, a pipeline, agents handing work over), add `steps`. The diagram then plays them in a loop:
+
+- **One beat per step.** `active` names the edges carrying traffic in that beat; only those light up and carry a packet.
+- **Change state as you go.** `nodes: { id: { status, tone, meters, highlight } }`. Tones: `run` (spinner), `ok`, `err`, `warn`, `dim`, `info`. A status going from `run` to `err` to `ok` tells the story at a glance.
+- **Log the beat.** Each step's `log` rows type out under the diagram: `{ actor: <node id>, text, status, tone }`. Keep the text short; put the result in `status` (`[ok]`, `exit 1`).
+- **Counters** in the footer count up between steps: start values in `counters`, targets in each step's `counters`.
+- 3-6 steps of 2000-3000 ms read well. End on the resolved state.
+
+Richer boxes and frame, all optional:
+
+- `meters` on a node: up to 4 bars (`label`, `value` 0-1, `text`, `tone`); steps move them with `meters: [values]`.
+- `spark: true` adds a moving activity wave row (a busy dispatcher, a stream).
+- `side: "left"` (or `right`) turns a node into a tall panel beside the tree; its `items` are rows a step highlights with `highlight: <index>`. Good for an advisor, a policy, a checklist.
+- `legend` (label + color per role) under the title, and `caption`: the one-line takeaway under the diagram.
+
+See `examples/agent-tree.json` for a full story.
+
 ## Example
 
 ```json

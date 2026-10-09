@@ -14,7 +14,7 @@ are an early-access feature: the hooks API can change between releases.
 | [`tool-cards`](#tool-cards) | Draws each tool call as a boxed card: highlighted command, output preview, timing footer |
 | [`cache-warm`](#cache-warm) | Keeps the prompt cache of an idle chat warm with a small capped ping, and counts cache hits and misses |
 | [`week-calendar`](#week-calendar) | `/week` draws a calendar of the week's sessions with commits, hours per project, and a 3-line report |
-| [`diagram-mod`](#diagram-mod) | Gives Claude a `show_diagram` tool: animated box-and-arrow diagrams, with packets moving along the edges |
+| [`diagram-mod`](#diagram-mod) | Gives Claude a `show_diagram` tool: animated diagrams that play a story step by step, with packets, gauges and a live log |
 
 ## Install
 
@@ -245,21 +245,34 @@ It needs Node and git. It opens the file with `open` on macOS or `xdg-open` on L
 Ask Claude for a diagram or a visual explanation and it calls the mod's `show_diagram` tool. The diagram
 draws in the tool's row in the transcript:
 
-- **Boxes**: a label, up to 4 detail lines and a status line, with dashed borders and a colour per role.
+- **Boxes**: a label, detail lines and a status, with dashed borders in the colour of their role. A status
+  has a tone: a spinner while running, `✓` ok, `✗` error, `!` warning.
 - **Edges**: dashed arrows with optional labels. The layout runs top to bottom and is computed from the
-  edges; Claude never gives coordinates. Edges that point back up run along the right margin.
-- **Packets**: coloured dots with a fading trail loop along the edges you name, each at its own speed.
-- **Log**: lines under the diagram type out one by one.
+  edges; Claude never gives coordinates. Edges that point back up, or skip a row, run along the right margin.
+- **Packets**: braille "comets" with a fading tail, moving a quarter cell at a time.
+- **Gauges**: bars (`meters`) that fill in eighths of a cell, and a moving activity wave (`spark`).
+- **Side panels**: a node with `side: "left"` or `"right"` becomes a tall panel beside the tree, with rows a
+  step can highlight.
+- **Frame**: a legend under the title, a caption under the diagram, a log table (time, actor, message,
+  status) and a footer of counters.
 
-The bundled skill tells Claude when to use the tool and how to keep a diagram readable: one idea, about
-12 nodes at most, labels of 1-3 words.
+### Stories
+
+Give the spec `steps` and the diagram plays them in a loop. Each step names the edges carrying traffic
+(only those light up), changes node statuses, meters and panel highlights, adds log rows, and moves the
+counters. Meters ease to their new values and counters count up across the step. Without steps, packets
+loop on the edges you name.
+
+`examples/agent-tree.json` is the story in the GIF; `examples/dispatcher.json` is a simple diagram without
+steps. The bundled skill tells Claude when to use the tool and how to keep a diagram readable: one idea,
+about 12 nodes at most, labels of 1-3 words, 3-6 steps.
 
 ### How it animates
 
-- About 30 frames a second, repainting one cell grid in place.
+- About 60 frames a second, repainting one cell grid in place; frames that would not change are skipped.
 - Only the newest diagram moves; older ones keep a still frame.
 - The animation waits while Claude is still writing its reply, so the streaming text stays fast, and
-  pauses while the row is scrolled out of view.
+  pauses while the row is scrolled out of view or folded.
 - A terminal narrower than the diagram gets a still text version instead.
 
 ### Settings
@@ -267,8 +280,6 @@ The bundled skill tells Claude when to use the tool and how to keep a diagram re
 | Setting | Default | What it does |
 |---|---|---|
 | `display` | `inline` | `inline`: the diagram animates in the transcript row. `pane`: it opens in a side pane, closed with `q` or `Esc` (Claude Code only seats a pane it did not ask for from 144 columns) |
-
-`examples/dispatcher.json` is a sample spec you can paste into a prompt.
 
 ## Development
 
