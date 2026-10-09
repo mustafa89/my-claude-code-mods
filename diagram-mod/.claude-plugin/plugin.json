@@ -1,0 +1,17 @@
+{
+  "name": "diagram-mod",
+  "version": "0.1.0",
+  "description": "show_diagram: animated box-and-arrow explainers in the terminal",
+  "userConfig": {
+    "display": {
+      "type": "string",
+      "title": "Where diagrams draw",
+      "description": "inline: animated in the tool's transcript row (any width). pane: a pane the tool opens (needs 144 columns when Claude opens it)",
+      "options": [
+        "inline",
+        "pane"
+      ],
+      "default": "inline"
+    }
+  }
+}

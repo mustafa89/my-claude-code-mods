@@ -1,0 +1,4 @@
+{
+  "description": "Registers show_diagram and draws its animated pane",
+  "modules": ["./register.tsx"]
+}

@@ -1,8 +1,8 @@
 # my-claude-code-mods
 
-Five mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
-screenshots, boxed cards for tool calls, a keepalive for the prompt cache, and a weekly calendar of your
-sessions.
+Six mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
+screenshots, boxed cards for tool calls, a keepalive for the prompt cache, a weekly calendar of your
+sessions, and animated diagrams Claude can draw in the transcript.
 
 Mods are Claude Code plugins built from function hooks. They need **Claude Code 2.1.287 or newer**. Mods
 are an early-access feature: the hooks API can change between releases.
@@ -14,6 +14,7 @@ are an early-access feature: the hooks API can change between releases.
 | [`tool-cards`](#tool-cards) | Draws each tool call as a boxed card: highlighted command, output preview, timing footer |
 | [`cache-warm`](#cache-warm) | Keeps the prompt cache of an idle chat warm with a small capped ping, and counts cache hits and misses |
 | [`week-calendar`](#week-calendar) | `/week` draws a calendar of the week's sessions with commits, hours per project, and a 3-line report |
+| [`diagram-mod`](#diagram-mod) | Gives Claude a `show_diagram` tool: animated box-and-arrow diagrams, with packets moving along the edges |
 
 ## Install
 
@@ -29,7 +30,7 @@ are an early-access feature: the hooks API can change between releases.
    ```json
    {
      "env": {
-       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar"
+       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar:~/.claude/mods/diagram-mod"
      }
    }
    ```
@@ -110,6 +111,8 @@ Every tool call becomes a card:
   errors show in red.
 - **Other tools**: one line saying what the call acted on, for example `src/cart/total.js:10-30` for a Read.
 - **Footer**: how long the call took, how many words it printed, and the Bash timeout if one was set.
+- **Diagrams** from [diagram-mod](#diagram-mod): a rounded card headed `◇ diagram`, as wide as the diagram,
+  with the animation inside and `▴ collapse` / `▾ expand`.
 
 Claude Code normally folds runs of reads and searches into one line (`Searched for 2 patterns`).
 tool-cards unfolds them, so each call gets its own card.
@@ -235,6 +238,38 @@ The calendar file holds the first message of each session as plain text. It stay
 
 It needs Node and git. It opens the file with `open` on macOS or `xdg-open` on Linux.
 
+## diagram-mod
+
+![diagram-mod](docs/screenshots/diagram-mod.gif)
+
+Ask Claude for a diagram or a visual explanation and it calls the mod's `show_diagram` tool. The diagram
+draws in the tool's row in the transcript:
+
+- **Boxes**: a label, up to 4 detail lines and a status line, with dashed borders and a colour per role.
+- **Edges**: dashed arrows with optional labels. The layout runs top to bottom and is computed from the
+  edges; Claude never gives coordinates. Edges that point back up run along the right margin.
+- **Packets**: coloured dots with a fading trail loop along the edges you name, each at its own speed.
+- **Log**: lines under the diagram type out one by one.
+
+The bundled skill tells Claude when to use the tool and how to keep a diagram readable: one idea, about
+12 nodes at most, labels of 1-3 words.
+
+### How it animates
+
+- About 30 frames a second, repainting one cell grid in place.
+- Only the newest diagram moves; older ones keep a still frame.
+- The animation waits while Claude is still writing its reply, so the streaming text stays fast, and
+  pauses while the row is scrolled out of view.
+- A terminal narrower than the diagram gets a still text version instead.
+
+### Settings
+
+| Setting | Default | What it does |
+|---|---|---|
+| `display` | `inline` | `inline`: the diagram animates in the transcript row. `pane`: it opens in a side pane, closed with `q` or `Esc` (Claude Code only seats a pane it did not ask for from 144 columns) |
+
+`examples/dispatcher.json` is a sample spec you can paste into a prompt.
+
 ## Development
 
 Each mod is a folder:
@@ -267,6 +302,8 @@ These come from the mods API, not from the mods:
 - **`Ctrl+o`**: tool rows do not report the expanded view (see [Expanding output](#expanding-output)).
 - **Cache lifetime**: mods cannot read which cache lifetime the session uses, so cache-warm takes it from
   the `ttl` setting.
+- **Tool names**: Claude Code lists a tool a mod registers as `mcp__<mod>__<tool>`, so diagram-mod's tool is
+  `mcp__diagram-mod__show_diagram` though no MCP server is involved.
 
 ## License
 

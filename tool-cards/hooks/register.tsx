@@ -15,6 +15,8 @@ const C = {
   arg: '#9FCB78',
   text: '#D7DCE4',
   muted: '#7F8796',
+  diagram: '#7DCFFF',
+  diagramFrame: '#2E5A6B',
 }
 
 const PREVIEW_LINES = 5
@@ -366,6 +368,8 @@ function diffBlock($: Api, ui: UI, id: string, patch: Hunk[], inner: number, isF
 }
 
 const isMcp = (tool: string) => tool.startsWith('mcp__')
+// Rows another mod draws (diagram-mod): the card frames and folds what the chain below draws.
+const HANDS_OFF = new Set(['mcp__diagram-mod__show_diagram'])
 
 // Calls whose card draws the result, so the engine's own result block goes.
 function ownsResult(tool: string, output: unknown, isErrored: boolean) {
@@ -409,7 +413,7 @@ export const register: Register = on => {
 
   // Bash, MCP and diff cards carry their own output, so the separate result block goes.
   on('ui.render', { component: 'ToolResult' }, ($, e, next) => {
-    if (e.surface !== 'terminal' || !ownsResult(e.props.tool, e.props.output, e.props.isErrored)) return next(e)
+    if (e.surface !== 'terminal' || HANDS_OFF.has(e.props.tool) || !ownsResult(e.props.tool, e.props.output, e.props.isErrored)) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box />
   })
@@ -423,7 +427,8 @@ export const register: Register = on => {
     const isBash = p.tool === 'Bash'
     const width = Math.max(40, (e.viewport?.columns ?? 100) - 2)
     const inner = width - 6
-    const rule = <Text color={C.frame}>{'─'.repeat(inner)}</Text>
+    // A diagram card hugs its diagram, so a terminal-wide rule would stretch it: a blank line instead.
+    const rule = HANDS_OFF.has(p.tool) ? <Text> </Text> : <Text color={C.frame}>{'─'.repeat(inner)}</Text>
     const [timeMap, open, all] = await Promise.all([read($, times), read($, expanded), read($, showAll)])
     const ms = timeMap[p.tool_use_id]
     // A card's own button wins over the /cards mode.
@@ -436,11 +441,13 @@ export const register: Register = on => {
         : p.isErrored
           ? { mark: '✗', color: C.fail }
           : { mark: '✓', color: C.ok }
-    const note = str(input.description)
+    const isDiagram = HANDS_OFF.has(p.tool)
+    // A diagram draws its own title and subtitle, so its card header names the kind only.
+    const note = isDiagram ? undefined : str(input.description)
 
     const header = (
       <Box key="head" gap={1}>
-        <Text color={C.name} bold>{`→ ${p.tool}`}</Text>
+        <Text color={isDiagram ? C.diagram : C.name} bold>{isDiagram ? '◇ diagram' : `→ ${p.tool}`}</Text>
         <Text color={status.color} bold>{status.mark}</Text>
         {note !== undefined ? <Text color={C.frame}>│</Text> : null}
         {note !== undefined ? <Text color={C.muted} wrap="truncate-end">{note}</Text> : null}
@@ -483,7 +490,7 @@ export const register: Register = on => {
       }
       if (typeof input.timeout === 'number') footer.push(`■ timeout ${duration(input.timeout).replace('.00', '')}`)
     } else {
-      const line = summary(p.tool, input, await $.session.cwd())
+      const line = isDiagram ? undefined : summary(p.tool, input, await $.session.cwd())
       if (line) {
         body.push(
           <Text key="args" color={C.arg} wrap="truncate-end">
@@ -495,6 +502,14 @@ export const register: Register = on => {
       if (patch) {
         body.push(rule)
         body.push(...diffBlock($, ui, p.tool_use_id, patch, inner, isFull))
+      } else if (HANDS_OFF.has(p.tool) && !p.isRunning) {
+        // Open unless folded by hand; folded, the chain below is not drawn at all.
+        const isOpen = open[p.tool_use_id] ?? true
+        body.push(rule)
+        if (isOpen) body.push(<Box key="drawn" flexDirection="column">{await next(e)}</Box>)
+        body.push(toggle($, ui, p.tool_use_id, isOpen, isOpen ? '▴ collapse' : '▾ expand'))
+        const count = (v: unknown) => (Array.isArray(v) ? v.length : 0)
+        footer.push(`${count(input.nodes)} nodes · ${count(input.edges)} edges`)
       } else if (isMcp(p.tool) && !p.isRunning) {
         const text = mcpText(p.output)
         const isErr = p.isErrored || (p.output as { isError?: unknown } | undefined)?.isError === true
@@ -505,7 +520,14 @@ export const register: Register = on => {
     }
 
     return (
-      <Box flexDirection="column" borderStyle="single" borderColor={C.frame} paddingX={2} width={width} marginTop={1}>
+      <Box
+        flexDirection="column"
+        borderStyle={isDiagram ? 'round' : 'single'}
+        borderColor={isDiagram ? C.diagramFrame : C.frame}
+        paddingX={2}
+        {...(isDiagram ? { alignSelf: 'flex-start' as const } : { width })}
+        marginTop={1}
+      >
         {header}
         {body.length > 0 ? rule : null}
         {body}

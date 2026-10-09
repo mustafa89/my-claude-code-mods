@@ -1,0 +1,35 @@
+{
+  "title": "Parallel review flow",
+  "subtitle": "One session fans work out to three workers, then a reviewer merges it",
+  "nodes": [
+    { "id": "main", "label": "Main session", "detail": ["holds the plan"], "color": "blue" },
+    { "id": "dispatch", "label": "Dispatcher", "detail": ["splits the task"], "color": "magenta", "status": "3 jobs" },
+    { "id": "w1", "label": "Worker 1", "color": "green", "status": "running" },
+    { "id": "w2", "label": "Worker 2", "color": "green", "status": "running" },
+    { "id": "w3", "label": "Worker 3", "color": "green", "status": "done" },
+    { "id": "review", "label": "Review", "detail": ["checks each diff"], "color": "yellow" }
+  ],
+  "edges": [
+    { "from": "main", "to": "dispatch", "label": "task" },
+    { "from": "dispatch", "to": "w1" },
+    { "from": "dispatch", "to": "w2" },
+    { "from": "dispatch", "to": "w3" },
+    { "from": "w1", "to": "review", "label": "diff" },
+    { "from": "w2", "to": "review" },
+    { "from": "w3", "to": "review" }
+  ],
+  "packets": [
+    { "edge": "main->dispatch", "color": "blue" },
+    { "edge": "dispatch->w1", "color": "magenta" },
+    { "edge": "dispatch->w2", "color": "magenta", "speed": 0.7 },
+    { "edge": "dispatch->w3", "color": "magenta", "speed": 0.5 },
+    { "edge": "w1->review", "color": "green" },
+    { "edge": "w3->review", "color": "green", "speed": 0.6 }
+  ],
+  "log": [
+    "main: plan split into 3 independent jobs",
+    "dispatcher: started worker 1, 2, 3",
+    "worker 3: done, diff sent to review",
+    "review: waiting on workers 1 and 2"
+  ]
+}
