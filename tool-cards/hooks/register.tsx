@@ -464,12 +464,16 @@ export const register: Register = on => {
       body.push(
         <Box key="cmd" flexDirection="column">
           {cmdLines.slice(0, COMMAND_LINES).map((line, i) => (
-            <Text key={`c${i}`} wrap="truncate-end">
-              <Text color={C.muted}>{i === 0 ? '$ ' : '  '}</Text>
-              {shellTokens(line).map((t, j) => (
-                <Text key={`t${j}`} color={TOKEN_COLOR[t.kind]}>{t.text}</Text>
-              ))}
-            </Text>
+            <Box key={`c${i}`}>
+              <Box width={2} flexShrink={0}>
+                <Text color={C.muted}>{i === 0 ? '$' : ' '}</Text>
+              </Box>
+              <Text wrap="wrap">
+                {shellTokens(line).map((t, j) => (
+                  <Text key={`t${j}`} color={TOKEN_COLOR[t.kind]}>{t.text}</Text>
+                ))}
+              </Text>
+            </Box>
           ))}
           {cmdLines.length > COMMAND_LINES ? <Text color={C.muted}>{`  … ${cmdLines.length - COMMAND_LINES} more lines`}</Text> : null}
         </Box>,
@@ -493,7 +497,7 @@ export const register: Register = on => {
       const line = isDiagram ? undefined : summary(p.tool, input, await $.session.cwd())
       if (line) {
         body.push(
-          <Text key="args" color={C.arg} wrap="truncate-end">
+          <Text key="args" color={C.arg} wrap="wrap">
             {line}
           </Text>,
         )

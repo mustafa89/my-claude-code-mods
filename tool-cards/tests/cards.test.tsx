@@ -196,3 +196,25 @@ test('highlights the changed words of a replaced line', async ($, on) => {
   expect(await card.find({ type: 'Text', text: 'process' })).toBeDefined()
   expect(await card.find({ type: 'Text', text: '## Build ' })).toBeDefined()
 })
+
+test('wraps a long command and a long argument line instead of cutting them', async ($, on) => {
+  on('session.cwd', () => ({ value: '/repo' }))
+  const tail = 'services/ai-gateway/very/long/path/that/ends/here'
+  const long = `grep -rn ${'x'.repeat(80)} ${tail}`
+  const bash = await $.ui.mount({
+    plugin: 'tool-cards',
+    surface: 'terminal',
+    component: 'ToolUse',
+    props: { ...bashRow(true), input: { command: long } },
+    viewport: { columns: 60, rows: 40 },
+  })
+  expect(await bash.find({ type: 'Text', text: tail })).toBeDefined()
+  const mcp = await $.ui.mount({
+    plugin: 'tool-cards',
+    surface: 'terminal',
+    component: 'ToolUse',
+    props: { tool_use_id: 'toolu_5', tool: 'mcp__gw__query', input: { query: long }, isRunning: true, isErrored: false, isInterrupted: false },
+    viewport: { columns: 60, rows: 40 },
+  })
+  expect(await mcp.find({ text: `query=${long}` })).toBeDefined()
+})
