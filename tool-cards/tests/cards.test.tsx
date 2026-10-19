@@ -218,3 +218,21 @@ test('wraps a long command and a long argument line instead of cutting them', as
   })
   expect(await mcp.find({ text: `query=${long}` })).toBeDefined()
 })
+
+test('an MCP card header names the bare tool and its server like a Bash description', async ($, on) => {
+  on('session.cwd', () => ({ value: '/repo' }))
+  const header = async (tool: string) =>
+    $.ui.mount({
+      plugin: 'tool-cards',
+      surface: 'terminal',
+      component: 'ToolUse',
+      props: { tool_use_id: 'toolu_6', tool, input: {}, isRunning: true, isErrored: false, isInterrupted: false },
+      viewport: { columns: 120, rows: 40 },
+    })
+  const gw = await header('mcp__employee-central-engineering__coralogix-mcp___query_dataprime')
+  expect(await gw.find({ text: '→ query_dataprime' })).toBeDefined()
+  expect(await gw.find({ text: 'coralogix-mcp · employee-central-engineering' })).toBeDefined()
+  const plain = await header('mcp__infra-copilot-prod__aws_read')
+  expect(await plain.find({ text: '→ aws_read' })).toBeDefined()
+  expect(await plain.find({ text: 'infra-copilot-prod' })).toBeDefined()
+})

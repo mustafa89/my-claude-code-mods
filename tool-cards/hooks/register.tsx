@@ -368,6 +368,17 @@ function diffBlock($: Api, ui: UI, id: string, patch: Hunk[], inner: number, isF
 }
 
 const isMcp = (tool: string) => tool.startsWith('mcp__')
+
+// mcp__<server>__<tool>, where a gateway tool is <target>___<tool>: the bare tool name and where it comes from.
+function mcpName(tool: string) {
+  const rest = tool.slice('mcp__'.length)
+  const cut = rest.indexOf('__')
+  if (cut < 0) return { name: rest, source: undefined }
+  const server = rest.slice(0, cut)
+  const call = rest.slice(cut + 2)
+  const gw = call.indexOf('___')
+  return gw < 0 ? { name: call, source: server } : { name: call.slice(gw + 3), source: `${call.slice(0, gw)} · ${server}` }
+}
 // Rows another mod draws (diagram-mod): the card frames and folds what the chain below draws.
 const HANDS_OFF = new Set(['mcp__diagram-mod__show_diagram'])
 
@@ -443,11 +454,13 @@ export const register: Register = on => {
           : { mark: '✓', color: C.ok }
     const isDiagram = HANDS_OFF.has(p.tool)
     // A diagram draws its own title and subtitle, so its card header names the kind only.
-    const note = isDiagram ? undefined : str(input.description)
+    // An MCP card names the bare tool and puts its server where a Bash card puts its description.
+    const mcp = isMcp(p.tool) && !isDiagram ? mcpName(p.tool) : undefined
+    const note = isDiagram ? undefined : (mcp?.source ?? str(input.description))
 
     const header = (
       <Box key="head" gap={1}>
-        <Text color={isDiagram ? C.diagram : C.name} bold>{isDiagram ? '◇ diagram' : `→ ${p.tool}`}</Text>
+        <Text color={isDiagram ? C.diagram : C.name} bold>{isDiagram ? '◇ diagram' : `→ ${mcp?.name ?? p.tool}`}</Text>
         <Text color={status.color} bold>{status.mark}</Text>
         {note !== undefined ? <Text color={C.frame}>│</Text> : null}
         {note !== undefined ? <Text color={C.muted} wrap="truncate-end">{note}</Text> : null}
