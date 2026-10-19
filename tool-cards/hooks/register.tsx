@@ -454,16 +454,18 @@ export const register: Register = on => {
           : { mark: '✓', color: C.ok }
     const isDiagram = HANDS_OFF.has(p.tool)
     // A diagram draws its own title and subtitle, so its card header names the kind only.
-    // An MCP card names the bare tool and puts its server where a Bash card puts its description.
+    // An MCP card names the bare tool and puts its server where a Bash card puts its description;
+    // a built-in tool puts what it acted on there, and MCP keeps its arguments in the body.
     const mcp = isMcp(p.tool) && !isDiagram ? mcpName(p.tool) : undefined
-    const note = isDiagram ? undefined : (mcp?.source ?? str(input.description))
+    const line = isBash || isDiagram || mcp ? undefined : summary(p.tool, input, await $.session.cwd())
+    const note = isDiagram ? undefined : (mcp?.source ?? (line || str(input.description)))
 
     const header = (
       <Box key="head" gap={1}>
         <Text color={isDiagram ? C.diagram : C.name} bold>{isDiagram ? '◇ diagram' : `→ ${mcp?.name ?? p.tool}`}</Text>
         <Text color={status.color} bold>{status.mark}</Text>
         {note !== undefined ? <Text color={C.frame}>│</Text> : null}
-        {note !== undefined ? <Text color={C.muted} wrap="truncate-end">{note}</Text> : null}
+        {note !== undefined ? <Text color={C.muted} wrap="wrap">{note}</Text> : null}
       </Box>
     )
 
@@ -507,11 +509,11 @@ export const register: Register = on => {
       }
       if (typeof input.timeout === 'number') footer.push(`■ timeout ${duration(input.timeout).replace('.00', '')}`)
     } else {
-      const line = isDiagram ? undefined : summary(p.tool, input, await $.session.cwd())
-      if (line) {
+      const args = mcp ? summary(p.tool, input, await $.session.cwd()) : undefined
+      if (args) {
         body.push(
           <Text key="args" color={C.arg} wrap="wrap">
-            {line}
+            {args}
           </Text>,
         )
       }

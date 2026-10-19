@@ -236,3 +236,20 @@ test('an MCP card header names the bare tool and its server like a Bash descript
   expect(await plain.find({ text: '→ aws_read' })).toBeDefined()
   expect(await plain.find({ text: 'infra-copilot-prod' })).toBeDefined()
 })
+
+test('a built-in tool puts its summary in the header note; Bash and MCP keep theirs', async ($, on) => {
+  on('session.cwd', () => ({ value: '/repo' }))
+  const mount = (props: Record<string, unknown>) =>
+    $.ui.mount({ plugin: 'tool-cards', surface: 'terminal', component: 'ToolUse', props, viewport: { columns: 140, rows: 40 } })
+  const edit = await mount(editRow())
+  expect(await edit.find({ text: 'README.md' })).toBeDefined()
+  expect(await edit.find({ text: '│' })).toBeDefined()
+  expect(await edit.find({ text: 'split' })).toBeDefined()
+  const grep = await mount({ tool_use_id: 'toolu_7', tool: 'Grep', input: { pattern: 'TODO', path: '/repo/src' }, isRunning: false, isErrored: false, isInterrupted: false })
+  expect(await grep.find({ text: 'TODO  in src' })).toBeDefined()
+  const bash = await mount(bashRow(false))
+  expect(await bash.find({ text: 'Find TODO markers' })).toBeDefined()
+  const mcp = await mount({ tool_use_id: 'toolu_8', tool: 'mcp__gw__chat', input: { execution_id: 'abc' }, isRunning: true, isErrored: false, isInterrupted: false })
+  expect(await mcp.find({ text: 'gw' })).toBeDefined()
+  expect(await mcp.find({ text: 'execution_id=abc' })).toBeDefined()
+})
