@@ -1,0 +1,6 @@
+{
+  "name": "session-browser",
+  "version": "0.1.0",
+  "description": "Sidebar of every Claude Code session across workspaces, folded per folder, searchable; a click resumes one",
+  "types": "./types/index.d.ts"
+}

@@ -1,8 +1,9 @@
 # my-claude-code-mods
 
-Six mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
+Seven mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
 screenshots, boxed cards for tool calls, a keepalive for the prompt cache, a weekly calendar of your
-sessions, and animated diagrams Claude can draw in the transcript.
+sessions, animated diagrams Claude can draw in the transcript, and a sidebar for finding and resuming
+sessions.
 
 Mods are Claude Code plugins built from function hooks. They need **Claude Code 2.1.287 or newer**. Mods
 are an early-access feature: the hooks API can change between releases.
@@ -15,6 +16,7 @@ are an early-access feature: the hooks API can change between releases.
 | [`cache-warm`](#cache-warm) | Keeps the prompt cache of an idle chat warm with a small capped ping, and counts cache hits and misses |
 | [`week-calendar`](#week-calendar) | `/week` draws a calendar of the week's sessions with commits, hours per project, and a 3-line report |
 | [`diagram-mod`](#diagram-mod) | Gives Claude a `show_diagram` tool: animated diagrams that play a story step by step, with packets, gauges and a live log |
+| [`session-browser`](#session-browser) | A sidebar of every session from every folder, folded per folder and searchable; a click resumes one |
 
 ## Install
 
@@ -30,7 +32,7 @@ are an early-access feature: the hooks API can change between releases.
    ```json
    {
      "env": {
-       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar:~/.claude/mods/diagram-mod"
+       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar:~/.claude/mods/diagram-mod:~/.claude/mods/session-browser"
      }
    }
    ```
@@ -281,6 +283,30 @@ about 12 nodes at most, labels of 1-3 words, 3-6 steps.
 |---|---|---|
 | `display` | `inline` | `inline`: the diagram animates in the transcript row. `pane`: it opens in a side pane, closed with `q` or `Esc` (Claude Code only seats a pane it did not ask for from 144 columns) |
 
+## session-browser
+
+Click `☰ sessions` at the right of the row above the prompt, or run `/sessions`, to open a sidebar of every
+Claude Code session on the machine. In fullscreen mode it docks beside the transcript; `Esc` closes it.
+
+- **Folders**: one row per working directory, folded at first, newest activity first. The folder's own name
+  is bold, its parent path dim, and its session count on the right.
+- **Sessions**: newest first under their folder, with tree guides and an age on the right (`now`, `12m`,
+  `3h`, `4d`): green within the hour, plain within the day, dim after that. The current session is green
+  with `●`.
+- **Titles**: a `/rename` title wins over the title Claude Code generates. A session with neither shows as
+  `untitled <id>`.
+- **Search**: type in the `⌕` field to filter by title and folder path. Every word must match, and folders
+  with a match open by themselves.
+- **Clicking a session**: one from the current folder closes the sidebar and runs `/resume <id>`. One from
+  another folder copies `cd '<folder>' && claude --resume <id>` to the clipboard, because a session cannot
+  change its working directory.
+
+### How it works
+
+The sidebar reads `~/.claude/projects/*/*.jsonl` each time it opens (`↻` reads again). Transcripts can be
+larger than the 4 MiB a mod may read at once, so two `grep` passes pull out each session's titles and
+working directory. Subagent transcripts are left out.
+
 ## Development
 
 Each mod is a folder:
@@ -313,6 +339,8 @@ These come from the mods API, not from the mods:
 - **`Ctrl+o`**: tool rows do not report the expanded view (see [Expanding output](#expanding-output)).
 - **Cache lifetime**: mods cannot read which cache lifetime the session uses, so cache-warm takes it from
   the `ttl` setting.
+- **Resuming across folders**: a session cannot change its working directory, so session-browser copies a
+  command for a session from another folder instead of switching to it.
 - **Tool names**: Claude Code lists a tool a mod registers as `mcp__<mod>__<tool>`, so diagram-mod's tool is
   `mcp__diagram-mod__show_diagram` though no MCP server is involved.
 
