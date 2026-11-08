@@ -10,6 +10,10 @@ import { maskContent, maskText, unmaskDeep, withheld, type Vault } from './mask'
 
 const VAULT = { plugin: 'secret-mask', key: 'vault' } as const
 
+// The doors a person's mod sees. A Skill call's tool-message is held too, so loading a
+// skill can still show one skip notice; other tools' messages can carry secrets.
+const MASKED_DOORS = ['prompt', 'command', 'response', 'tool-result', 'tool-message', 'delivery', 'note', 'notice', 'queue'] as const
+
 // The map held by this module; reloaded from $.state after a hot reload.
 let vault: Vault | undefined
 
@@ -27,8 +31,10 @@ async function save($: EngineInterface, v: Vault): Promise<void> {
 }
 
 export const register: Register = on => {
-  // Every row of every conversation, before it is stored or sent.
-  on('session.append', async ($, e, next) => {
+  // Every row a personal mod may rewrite, before it is stored or sent. Claude Code's
+  // built-in security plugin sends attachment, hook-context and compaction rows (CLAUDE.md,
+  // memory, reminders) past personal mods; hooking them only adds a skip notice at startup.
+  on('session.append', { door: MASKED_DOORS }, async ($, e, next) => {
     const v = await load($)
     const { content, count } = maskContent(e.message.content, v)
     if (count === 0) return next(e)
