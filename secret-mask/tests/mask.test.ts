@@ -21,7 +21,7 @@ const toolRow = (uuid: string, text: string) => ({
 
 test('every gitleaks rule compiles in the mod runtime', async () => {
   expect(GITLEAKS_RULES.length).toBeGreaterThan(200)
-  expect(RULES.length).toBe(GITLEAKS_RULES.length + 1) // plus URL_PASSWORD
+  expect(RULES.length).toBe(GITLEAKS_RULES.length + 4) // plus AUTH_HEADER, API_KEY_HEADER, QUOTED_SECRET, URL_PASSWORD
   for (const r of GITLEAKS_RULES) expect(() => new RegExp(r.re.source, r.re.flags + 'd')).not.toThrow()
 })
 
@@ -46,6 +46,33 @@ test('generic assignments mask only random-looking values', async () => {
   const url = maskText('postgres://app:Zq8rT2vXw9@db:5432/x', v)
   expect(url.text).not.toContain('Zq8rT2vXw9')
   expect(url.text).toContain('postgres://app:')
+})
+
+test('header values are masked whole, whatever characters they hold', async () => {
+  const v: Vault = new Map()
+  const tok = 'sk-' + 'Ab3(=:Xy9*qW8RTYUU(Q'
+  const curl = `curl -X POST 'https://gw.example/key/generate' \\\n    -H 'Authorization: Bearer ${tok}' \\\n    -H 'Content-Type: application/json'`
+  const r = maskText(curl, v)
+  expect(r.text).not.toContain(tok)
+  expect(r.text).not.toContain('Xy9*qW8')
+  expect(r.text).toContain("-H 'Authorization: Bearer " + '{'.repeat(2) + 'SECRET_AUTH_HEADER_')
+  expect(r.text).toContain("-H 'Content-Type: application/json'")
+  const key = 'Zq9#' + 'mK2!pL7$wR4'
+  expect(maskText(`x-api-key: ${key}`, v).text).not.toContain(key)
+  expect(maskText('"Authorization": "Basic ' + 'dXNlcjpwQHNzKHcwcmQp' + '"', v).text).not.toContain('dXNlcjpwQHNzKHcwcmQp')
+})
+
+test('references in headers are left alone', async () => {
+  const v: Vault = new Map()
+  for (const line of ['Authorization: Bearer $TOKEN', 'Authorization: Bearer ${API_TOKEN}', 'Authorization: Bearer <token>', 'x-api-key: $KEY'])
+    expect(maskText(line, v)).toEqual({ text: line, count: 0 })
+})
+
+test('quoted passwords with punctuation are masked, weak ones are not', async () => {
+  const v: Vault = new Map()
+  const pw = 'p@ss(w0rd)' + '!Z9x'
+  expect(maskText(`db_password = "${pw}"`, v).text).not.toContain(pw)
+  expect(maskText('password: "changeme"', v).count).toBe(0)
 })
 
 test('plain code and existing placeholders are left alone', async () => {

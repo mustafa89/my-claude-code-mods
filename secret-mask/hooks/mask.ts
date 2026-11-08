@@ -27,6 +27,38 @@ const compileAllow = (a: GitleaksAllow): Allow => ({
   stopwords: a.stopwords,
 })
 
+// A value that is a reference, not a secret: $VAR, ${VAR}, <token>, {{ template }}.
+const VALUE = String.raw`([^\s'"\x60$<{][^\s'"\x60]{7,})`
+
+// Rules that judge a value by where it sits, not by its format, so any characters
+// count. They run before gitleaks': a gitleaks rule that matched only the start of
+// such a value would otherwise mask half of it and leave the rest in the clear.
+const LOCAL_FIRST: Rule[] = [
+  // Authorization: Bearer|Basic|Token <value>, in headers, curl -H and config.
+  {
+    kind: 'AUTH_HEADER',
+    re: new RegExp(String.raw`\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:bearer|basic|token|apikey|api-key)\s+` + VALUE, 'dgi'),
+    keywords: ['authorization'],
+    allowlists: [],
+  },
+  // API key headers: x-api-key, api-key, private-token, x-auth-token and the like.
+  {
+    kind: 'API_KEY_HEADER',
+    re: new RegExp(String.raw`\b(?:x-api-key|api-key|apikey|x-auth-token|private-token|x-gitlab-token|x-access-token)["']?\s*[:=]\s*["']?` + VALUE, 'dgi'),
+    keywords: ['api-key', 'apikey', 'auth-token', 'private-token', 'gitlab-token', 'access-token'],
+    allowlists: [],
+  },
+  // A quoted value of any characters assigned to a password-like name, when it looks random.
+  {
+    kind: 'QUOTED_SECRET',
+    re: /\b[\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|master[_-]?key|private[_-]?key|client[_-]?secret)["']?\s*[:=]\s*(["'])((?:(?!\1)[^\s$<{])(?:(?!\1).){7,199})\1/dgi,
+    secretGroup: 2,
+    entropy: 3.0,
+    keywords: ['passw', 'pwd', 'secret', 'token', 'key'],
+    allowlists: [],
+  },
+]
+
 // Rules gitleaks does not have, applied after its own.
 const LOCAL: Rule[] = [
   // The password in scheme://user:password@host; only when it looks random.
@@ -40,6 +72,7 @@ const LOCAL: Rule[] = [
 ]
 
 export const RULES: Rule[] = [
+  ...LOCAL_FIRST,
   ...GITLEAKS_RULES.map(r => ({
     kind: r.kind,
     re: compile(r.re),

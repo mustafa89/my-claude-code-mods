@@ -327,8 +327,12 @@ Bash runs:    aws configure set key AKIAQ3EXAMPLE7KEY2ZZ
   default [`gitleaks.toml`](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml) (the five
   left out fire only for certain file types). They are applied as gitleaks applies them: keyword prefilter,
   the rule's secret group, its entropy threshold and its allowlists, so `password = "changeme"` is left
-  alone. One rule of the mod's own sits on top: the password in `scheme://user:<password>@host`, when it
-  looks random.
+  alone.
+- **Rules of its own**, for secrets that have no known format and so slip past gitleaks. They judge a value
+  by where it sits, whatever characters it holds: the value after `Authorization: Bearer|Basic|Token`, API
+  key headers (`x-api-key`, `private-token` and the like), quoted values assigned to password-like names
+  when they look random, and the password in `scheme://user:<password>@host`. The header rules run before
+  gitleaks', so a token is masked whole. References (`$TOKEN`, `${KEY}`, `<token>`) are left alone.
 - **Same value, same placeholder**: the placeholder's id is a hash of the value, so earlier turns stay
   byte-for-byte the same and the prompt cache keeps working.
 - **Memory only**: the map from placeholder to value is held for the session and never written to disk.
