@@ -310,6 +310,8 @@ working directory. Subagent transcripts are left out.
 
 ## secret-mask
 
+![secret-mask](docs/screenshots/secret-mask.gif)
+
 Keys, tokens and passwords in what you send and in what tools print are replaced with placeholders before
 the model sees them. When the model uses a placeholder in a tool call, the real value goes back in just
 before the tool runs, so commands and edits still work on the real secret.
