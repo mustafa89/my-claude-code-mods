@@ -121,3 +121,26 @@ test('a tool call gets the real value back, an unknown placeholder is refused', 
   const refused = await $.tool.call({ tool: 'Bash', command: `echo ${O}SECRET_JWT_zzzzzzzzzzzz${C}` })
   expect(refused.deny).toContain('has no value in this session')
 })
+
+const PANE = {
+  plugin: 'secret-mask',
+  component: 'Pane',
+  requestId: 'secret-mask',
+  props: { title: 'Masked secrets', isFocused: false, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+} as const
+
+test('the pane lists what was masked, ends only until Show values is pressed', async ($, on) => {
+  mock.session(on)
+  await $.session.append(toolRow('r3', `use ${AWS}`))
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect((await ui.find({ type: 'Text', text: /AWS_ACCESS_TOKEN/ }))?.text).toBe('AWS_ACCESS_TOKEN')
+    const all = JSON.stringify(await ui.findAll({ type: 'Text' }))
+    expect(all).toContain('AKIA…2ZZ (20 chars)')
+    expect(all).not.toContain(AWS)
+    await ui.press({ key: 'reveal' })
+    expect(JSON.stringify(await ui.findAll({ type: 'Text' }))).toContain(AWS)
+    await ui.press({ key: 'reveal' }) // back to hidden for the next surface
+    await ui.unmount()
+  }
+})

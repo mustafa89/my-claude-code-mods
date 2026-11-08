@@ -335,7 +335,10 @@ Bash runs:    aws configure set key AKIAQ3EXAMPLE7KEY2ZZ
   It survives a mod reload, not a restart.
 - **Fails closed**: if masking a row fails, the row goes to the model without its text. A placeholder the
   mod does not know (after a restart) refuses the tool call and tells the model to ask you for the value.
-- **Status line**: `secret-mask: N masked` counts the values held this session.
+- **Seeing what was masked**: the status line counts the values held this session. `/secret-mask` opens a
+  pane that lists each one, newest first, with its rule, its first and last characters and its length;
+  **Show values** shows them in full. The pane is drawn on screen only, so the values never reach the
+  model.
 
 ### How it works
 

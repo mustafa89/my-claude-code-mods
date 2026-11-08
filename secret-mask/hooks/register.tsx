@@ -1,3 +1,4 @@
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 import type { VaultEntry } from '../types'
 import { maskContent, maskText, unmaskDeep, withheld, type Vault } from './mask'
@@ -9,6 +10,13 @@ import { maskContent, maskText, unmaskDeep, withheld, type Vault } from './mask'
 // The map lives in $.state: host memory for this session, never on disk.
 
 const VAULT = { plugin: 'secret-mask', key: 'vault' } as const
+const vaultAtom = atom(VAULT, {})
+const reveal = atom({ plugin: 'secret-mask', key: 'reveal' } as const, false)
+const PANE = 'secret-mask'
+
+// What the pane shows of a value: its ends and length, or all of it when revealed.
+const preview = (value: string, full: boolean) =>
+  full ? value : value.length <= 10 ? `${'•'.repeat(value.length)} (${value.length} chars)` : `${value.slice(0, 4)}…${value.slice(-3)} (${value.length} chars)`
 
 // The doors a person's mod sees. A Skill call's tool-message is held too, so loading a
 // skill can still show one skip notice; other tools' messages can carry secrets.
@@ -27,10 +35,45 @@ async function load($: EngineInterface): Promise<Vault> {
 // Writes the map through to $.state (survives a hot reload) and shows how many values are held.
 async function save($: EngineInterface, v: Vault): Promise<void> {
   await $.state.set(VAULT, Object.fromEntries(v))
-  $.ui.status(`secret-mask: ${v.size} masked`)
+  $.ui.status(`${v.size} masked · /secret-mask to see them`)
 }
 
 export const register: Register = on => {
+  // /secret-mask opens a pane of what was masked. A pane is drawn on screen only:
+  // nothing in it is added to the conversation, so the values never reach the model.
+  on('session.start', async ($, e, next) => {
+    await $.command.register({ name: 'secret-mask', description: 'Show the secrets masked in this session' })
+    return next(e)
+  })
+
+  on('command.run', { command: 'secret-mask' }, async $ => {
+    await $.ui.open({ id: PANE, title: 'Masked secrets' })
+    return { text: 'Opened the masked-secrets pane.' }
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const entries = Object.entries(await read($, vaultAtom)).reverse() // newest first
+    const full = await read($, reveal)
+    const room = Math.max(1, Math.floor(((e.viewport?.rows ?? 24) - 4) / 2))
+    return (
+      <Box flexDirection="column">
+        <Box>
+          <Text dimColor>{entries.length} masked this session, held in memory only </Text>
+          <Button key="reveal" label={full ? 'Hide values' : 'Show values'} onPress={() => update($, reveal, r => !r)} />
+        </Box>
+        {entries.length === 0 && <Text dimColor>Nothing masked yet.</Text>}
+        {entries.slice(0, room).map(([ph, held]) => (
+          <Box flexDirection="column">
+            <Text bold>{held.kind}</Text>
+            <Text>  {preview(held.value, full)}  <Text dimColor>{ph}</Text></Text>
+          </Box>
+        ))}
+        {entries.length > room && <Text dimColor>…and {entries.length - room} more</Text>}
+      </Box>
+    )
+  })
+
   // Every row a personal mod may rewrite, before it is stored or sent. Claude Code's
   // built-in security plugin sends attachment, hook-context and compaction rows (CLAUDE.md,
   // memory, reminders) past personal mods; hooking them only adds a skip notice at startup.
