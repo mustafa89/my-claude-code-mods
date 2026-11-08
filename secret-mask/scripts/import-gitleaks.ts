@@ -1,0 +1,134 @@
+// Regenerates hooks/gitleaks-rules.ts from gitleaks' default rule set.
+//
+//   bun scripts/import-gitleaks.ts            # the commit pinned below
+//   bun scripts/import-gitleaks.ts <sha>      # another gitleaks commit
+//
+// Source: https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+// gitleaks is Copyright (c) 2019 Zachary Rice, MIT License (LICENSE-gitleaks).
+//
+// gitleaks writes Go (RE2) regexes; the mod runs JavaScript. The conversion:
+//   (?i) at the start            -> the `i` flag
+//   (?i) later, (?i:...)         -> the `i` flag on the whole pattern (slightly broader)
+//   (?-i:...)                    -> (?:...)   (also broader, under the `i` flag)
+//   (?s) (?m)                    -> the `s` / `m` flags
+//   (?P<name>                    -> (?<name>
+//   \A \z                        -> ^ $
+//   [[:alnum:]] and other POSIX  -> explicit ranges
+// No `u` flag, so \w \d \s stay ASCII as in Go. Every converted regex is
+// compiled here; one that fails is dropped and named in the header.
+
+import { dirname, join } from 'node:path'
+
+const PINNED = '5f6ec56cfa6f8c67648d863582c7ae2f206d5c1c'
+const sha = process.argv[2] ?? PINNED
+const raw = (path: string) => `https://raw.githubusercontent.com/gitleaks/gitleaks/${sha}/${path}`
+const root = join(dirname(import.meta.path), '..')
+
+type Re = { source: string; flags: string }
+type Allow = { condition: 'OR' | 'AND'; target: 'secret' | 'match' | 'line'; regexes: Re[]; stopwords: string[] }
+type Rule = { id: string; kind: string; re: Re; secretGroup?: number; entropy?: number; keywords: string[]; allowlists?: Allow[] }
+
+const POSIX: Record<string, string> = {
+  alnum: 'A-Za-z0-9', alpha: 'A-Za-z', digit: '0-9', lower: 'a-z', upper: 'A-Z',
+  space: '\\s', xdigit: '0-9A-Fa-f', word: '\\w', punct: '!-\\/:-@\\[-`{-~',
+}
+
+function convert(go: string): Re {
+  const flags = new Set(['g'])
+  let s = go
+  // Inline flag groups: (?i) (?s) (?is) anywhere, and (?i:...) (?-i:...) groups.
+  s = s.replace(/\(\?([a-zA-Z]+)\)/g, (_, f: string) => {
+    for (const c of f) if ('ism'.includes(c)) flags.add(c)
+    else throw new Error(`unsupported flag ${c}`)
+    return ''
+  })
+  s = s.replace(/\(\?(-?[a-zA-Z]+(?:-[a-zA-Z]+)?):/g, (_, f: string) => {
+    const [on = ''] = f.split('-')
+    for (const c of on) if ('ism'.includes(c)) flags.add(c)
+    return '(?:'
+  })
+  s = s.replace(/\(\?P</g, '(?<')
+  s = s.replace(/(?<!\\)((?:\\\\)*)\\A/g, '$1^').replace(/(?<!\\)((?:\\\\)*)\\z/g, '$1$')
+  s = s.replace(/\[:([a-z]+):\]/g, (m, name: string) => POSIX[name] ?? m)
+  s = s.replace(/\\x\{([0-9a-fA-F]{1,4})\}/g, (_, h: string) =>
+    h.length <= 2 ? `\\x${h.padStart(2, '0')}` : `\\u${h.padStart(4, '0')}`)
+  const re = { source: s, flags: [...flags].sort().join('') }
+  new RegExp(re.source, re.flags + 'd') // throws when JavaScript can't take it
+  return re
+}
+
+const kindOf = (id: string) => id.toUpperCase().replace(/[^A-Z0-9]+/g, '_')
+
+function allowlist(a: any, label: string, dropped: string[]): Allow | undefined {
+  const condition = (a.condition ?? 'OR').toUpperCase() === 'AND' ? 'AND' : 'OR'
+  // Paths and commits never hold for chat text: under AND they make the list unmatchable.
+  if (condition === 'AND' && (a.paths?.length || a.commits?.length)) return undefined
+  const regexes: Re[] = []
+  for (const r of a.regexes ?? []) {
+    try { regexes.push(convert(r)) } catch (e) { dropped.push(`${label} allowlist regex ${JSON.stringify(r)}: ${(e as Error).message}`) }
+  }
+  const stopwords = (a.stopwords ?? []).map((w: string) => w.toLowerCase())
+  if (!regexes.length && !stopwords.length) return undefined
+  return { condition, target: a.regexTarget ?? 'secret', regexes, stopwords }
+}
+
+const [toml, license] = await Promise.all([
+  fetch(raw('config/gitleaks.toml')).then(r => (r.ok ? r.text() : Promise.reject(new Error(`gitleaks.toml: ${r.status}`)))),
+  fetch(raw('LICENSE')).then(r => (r.ok ? r.text() : Promise.reject(new Error(`LICENSE: ${r.status}`)))),
+])
+const cfg: any = Bun.TOML.parse(toml)
+
+const dropped: string[] = []
+const rules: Rule[] = []
+for (const r of cfg.rules as any[]) {
+  if (!r.regex) { dropped.push(`${r.id}: matches file paths only`); continue }
+  if (r.path) { dropped.push(`${r.id}: fires only for files matching ${r.path}`); continue }
+  let re: Re
+  try { re = convert(r.regex) } catch (e) { dropped.push(`${r.id}: ${(e as Error).message}`); continue }
+  const allowlists = (r.allowlists ?? []).map((a: any) => allowlist(a, r.id, dropped)).filter(Boolean) as Allow[]
+  rules.push({
+    id: r.id, kind: kindOf(r.id), re,
+    ...(r.secretGroup ? { secretGroup: r.secretGroup } : {}),
+    ...(r.entropy ? { entropy: r.entropy } : {}),
+    keywords: (r.keywords ?? []).map((k: string) => k.toLowerCase()),
+    ...(allowlists.length ? { allowlists } : {}),
+  })
+}
+const global = allowlist({ regexes: cfg.allowlist?.regexes, stopwords: cfg.allowlist?.stopwords }, 'global', dropped)
+
+const header = `// GENERATED by scripts/import-gitleaks.ts: do not edit by hand, run the script again.
+//
+// Credit: these rules come from gitleaks' default configuration,
+//   https://github.com/gitleaks/gitleaks/blob/${sha}/config/gitleaks.toml
+// gitleaks, Copyright (c) 2019 Zachary Rice, MIT License: see LICENSE-gitleaks
+// next to this mod. The regexes are converted from Go (RE2) to JavaScript; the
+// rule ids, keywords, entropy thresholds and allowlists are gitleaks' own.
+//
+// gitleaks commit ${sha}, imported ${new Date().toISOString().slice(0, 10)}.
+// ${rules.length} of ${(cfg.rules as any[]).length} rules imported.${dropped.length ? ' Left out:\n' + dropped.map(d => `//   - ${d}`).join('\n') : ''}
+
+export type GitleaksRe = { source: string; flags: string }
+export type GitleaksAllow = { condition: 'OR' | 'AND'; target: 'secret' | 'match' | 'line'; regexes: GitleaksRe[]; stopwords: string[] }
+export type GitleaksRule = {
+  id: string
+  kind: string
+  re: GitleaksRe
+  secretGroup?: number
+  entropy?: number
+  keywords: string[]
+  allowlists?: GitleaksAllow[]
+}
+
+export const GITLEAKS_COMMIT = ${JSON.stringify(sha)}
+`
+const body = `
+export const GITLEAKS_ALLOW: GitleaksAllow | undefined = ${JSON.stringify(global ?? null) === 'null' ? 'undefined' : JSON.stringify(global)}
+
+export const GITLEAKS_RULES: GitleaksRule[] = [
+${rules.map(r => '  ' + JSON.stringify(r)).join(',\n')},
+]
+`
+await Bun.write(join(root, 'hooks/gitleaks-rules.ts'), header + body)
+await Bun.write(join(root, 'LICENSE-gitleaks'), license)
+console.log(`${rules.length} rules written, ${dropped.length} left out`)
+for (const d of dropped) console.log(`  - ${d}`)

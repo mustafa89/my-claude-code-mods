@@ -1,43 +1,60 @@
 // Pure masking logic: no engine calls, so tests import it directly.
 //
+// Detection rules: gitleaks' default rule set (217 rules), generated into
+// ./gitleaks-rules.ts from
+//   https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+// gitleaks, Copyright (c) 2019 Zachary Rice, MIT License (LICENSE-gitleaks).
+// They are applied as gitleaks applies them: keyword prefilter, the secret is the
+// rule's secretGroup or else its first non-empty capture group, entropy must be
+// above the rule's threshold, and the global and rule allowlists are honoured.
+//
 // A secret becomes {{SECRET_<KIND>_<id>}}. The id comes from the value itself,
 // so the same value always gets the same placeholder: earlier turns stay
 // byte-identical and the prompt cache keeps working.
 
+import { GITLEAKS_ALLOW, GITLEAKS_RULES, type GitleaksAllow, type GitleaksRe } from './gitleaks-rules'
+
 export type Vault = Map<string, { kind: string; value: string }>
 
-type Rule = {
-  kind: string
-  re: RegExp
-  // Generic rules mask only the named group `s`, and only when it looks random.
-  minEntropy?: number
-}
+type Allow = { condition: 'OR' | 'AND'; target: 'secret' | 'match' | 'line'; regexes: RegExp[]; stopwords: string[] }
+type Rule = { kind: string; re: RegExp; secretGroup?: number; entropy?: number; keywords: string[]; allowlists: Allow[] }
 
-// Specific formats first (after gitleaks' rules), generic assignments last.
-const RULES: Rule[] = [
-  { kind: 'PRIVATE_KEY', re: /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[\s\S]+?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----/g },
-  { kind: 'AWS_KEY_ID', re: /\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b/g },
-  { kind: 'AWS_SECRET', re: /aws_?secret_?access_?key["']?\s*[:=]\s*["']?(?<s>[A-Za-z0-9/+=]{40})(?![A-Za-z0-9/+=])/gi },
-  { kind: 'GITLAB_TOKEN', re: /\b(?:glpat|gldt|glrt|glsoat|glcbt|glimt|glagent|glffct)-[0-9A-Za-z_-]{20,}|\bglptt-[0-9a-f]{40}\b|\bGR1348941[0-9A-Za-z_-]{20,}/g },
-  { kind: 'GITHUB_TOKEN', re: /\bgh[pousr]_[0-9A-Za-z]{36,}\b|\bgithub_pat_[0-9A-Za-z_]{80,}/g },
-  { kind: 'SLACK_TOKEN', re: /\bxox[abposr]-[0-9A-Za-z-]{10,}/g },
-  { kind: 'SLACK_WEBHOOK', re: /https:\/\/hooks\.slack\.com\/(?:services|workflows|triggers)\/[A-Za-z0-9+/_-]{20,}/g },
-  { kind: 'ANTHROPIC_KEY', re: /\bsk-ant-[A-Za-z0-9_-]{20,}/g },
-  { kind: 'OPENAI_KEY', re: /\bsk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g },
-  { kind: 'GOOGLE_API_KEY', re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
-  { kind: 'STRIPE_KEY', re: /\b[rs]k_live_[0-9A-Za-z]{20,}\b/g },
-  { kind: 'JWT', re: /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g },
-  { kind: 'URL_PASSWORD', re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/'"]+:(?<s>[^\s@/'"$<{]{6,})@/gi, minEntropy: 2.5 },
+const compile = (r: GitleaksRe) => new RegExp(r.source, r.flags.includes('d') ? r.flags : r.flags + 'd')
+const compileAllow = (a: GitleaksAllow): Allow => ({
+  condition: a.condition,
+  target: a.target,
+  regexes: a.regexes.map(r => new RegExp(r.source, r.flags.replace('g', ''))),
+  stopwords: a.stopwords,
+})
+
+// Rules gitleaks does not have, applied after its own.
+const LOCAL: Rule[] = [
+  // The password in scheme://user:password@host; only when it looks random.
   {
-    kind: 'SECRET',
-    re: /(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)["']?\s*[:=]\s*["'](?<s>[^"'\s$<{]{8,})["']/gi,
-    minEntropy: 3.0,
+    kind: 'URL_PASSWORD',
+    re: /\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/'"]+:([^\s@/'"$<{]{6,})@/dgi,
+    entropy: 2.5,
+    keywords: ['://'],
+    allowlists: [],
   },
 ]
 
-export const PLACEHOLDER = /\{\{SECRET_[A-Z_]+_[0-9a-z]{8,}\}\}/g
+export const RULES: Rule[] = [
+  ...GITLEAKS_RULES.map(r => ({
+    kind: r.kind,
+    re: compile(r.re),
+    secretGroup: r.secretGroup,
+    entropy: r.entropy,
+    keywords: r.keywords,
+    allowlists: (r.allowlists ?? []).map(compileAllow),
+  })),
+  ...LOCAL,
+]
+const GLOBAL_ALLOW: Allow[] = GITLEAKS_ALLOW ? [compileAllow(GITLEAKS_ALLOW)] : []
 
-// Shannon entropy in bits per character: rejects words like "changeme" in generic rules.
+export const PLACEHOLDER = /\{\{SECRET_[A-Z0-9_]+_[0-9a-z]{8,}\}\}/g
+
+// Shannon entropy in bits per character, as gitleaks computes it.
 function entropy(s: string): number {
   const counts = new Map<string, number>()
   for (const c of s) counts.set(c, (counts.get(c) ?? 0) + 1)
@@ -49,7 +66,23 @@ function entropy(s: string): number {
   return h
 }
 
-// FNV-1a, two seeds: a stable 64-bit id without crypto (the engine has no Node).
+// gitleaks' checkFindingAllowed: OR = a regex or a stopword holds; AND = every
+// check the allowlist defines holds. Stopwords are read against the secret.
+function allowed(lists: Allow[], secret: string, match: string, line: string): boolean {
+  const lower = secret.toLowerCase()
+  return lists.some(a => {
+    const target = a.target === 'match' ? match : a.target === 'line' ? line : secret
+    const byRegex = a.regexes.some(re => re.test(target))
+    const byWord = a.stopwords.some(w => lower.includes(w))
+    if (a.condition === 'AND') {
+      const checks = [...(a.regexes.length ? [byRegex] : []), ...(a.stopwords.length ? [byWord] : [])]
+      return checks.length > 0 && checks.every(Boolean)
+    }
+    return byRegex || byWord
+  })
+}
+
+// FNV-1a, two seeds: a stable id without crypto (the engine has no Node).
 function fnv(s: string, seed: number): number {
   let h = seed >>> 0
   for (let i = 0; i < s.length; i++) {
@@ -77,21 +110,45 @@ function placeholderFor(kind: string, value: string, vault: Vault): string {
   }
 }
 
+type Edit = { start: number; end: number; text: string }
+
+// One rule over the text: the edits for every finding it keeps.
+function findings(rule: Rule, text: string, vault: Vault): Edit[] {
+  const taken = [...text.matchAll(PLACEHOLDER)].map(m => [m.index, m.index + m[0].length] as const)
+  const edits: Edit[] = []
+  rule.re.lastIndex = 0
+  for (const m of text.matchAll(rule.re)) {
+    // The secret: secretGroup, else the first non-empty capture group, else the match.
+    let gi = 0
+    if (rule.secretGroup && m[rule.secretGroup]) gi = rule.secretGroup
+    else if (!rule.secretGroup) gi = m.findIndex((g, i) => i > 0 && !!g)
+    if (gi < 0) gi = 0
+    const secret = m[gi] ?? ''
+    if (!secret) continue
+    const span = m.indices?.[gi]
+    const start = span ? span[0] : m.index + m[0].indexOf(secret)
+    const end = start + secret.length
+    if (taken.some(([a, b]) => start < b && end > a)) continue // inside a placeholder already
+    if (rule.entropy !== undefined && entropy(secret) <= rule.entropy) continue
+    const lineStart = text.lastIndexOf('\n', start) + 1
+    const lineEnd = text.indexOf('\n', end)
+    const line = text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd)
+    if (allowed(GLOBAL_ALLOW, secret, m[0], line) || allowed(rule.allowlists, secret, m[0], line)) continue
+    edits.push({ start, end, text: placeholderFor(rule.kind, secret, vault) })
+  }
+  return edits
+}
+
 // Masks every secret in text. Returns the text and how many values it replaced.
 export function maskText(text: string, vault: Vault): { text: string; count: number } {
-  let count = 0
   let out = text
+  let count = 0
+  const lower = text.toLowerCase()
   for (const rule of RULES) {
-    rule.re.lastIndex = 0
-    out = out.replace(rule.re, (match: string, ...rest: unknown[]) => {
-      const groups = rest[rest.length - 1] as Record<string, string> | undefined
-      const s = typeof groups === 'object' && groups ? groups.s : undefined
-      const secret = s ?? match
-      if (rule.minEntropy !== undefined && entropy(secret) < rule.minEntropy) return match
-      count++
-      const ph = placeholderFor(rule.kind, secret, vault)
-      return s === undefined ? ph : match.replace(s, ph)
-    })
+    if (rule.keywords.length && !rule.keywords.some(k => lower.includes(k))) continue
+    const edits = findings(rule, out, vault)
+    for (const e of edits.reverse()) out = out.slice(0, e.start) + e.text + out.slice(e.end)
+    count += edits.length
   }
   return { text: out, count }
 }

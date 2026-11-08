@@ -323,10 +323,12 @@ model runs:   aws configure set key {{SECRET_AWS_KEY_ID_1mj8f9v0y43b}}
 Bash runs:    aws configure set key AKIAQ3EXAMPLE7KEY2ZZ
 ```
 
-- **What it finds**: private keys, AWS key IDs and secret keys, GitLab and GitHub tokens, Slack tokens and
-  webhooks, Anthropic, OpenAI, Google and Stripe keys, JWTs, passwords in URLs, and quoted values assigned to
-  names like `password`, `token` or `api_key`. The last two only when the value looks random:
-  `password = "changeme"` is left alone.
+- **What it finds**: the rules of [gitleaks](https://github.com/gitleaks/gitleaks), 217 of the 222 in its
+  default [`gitleaks.toml`](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml) (the five
+  left out fire only for certain file types). They are applied as gitleaks applies them: keyword prefilter,
+  the rule's secret group, its entropy threshold and its allowlists, so `password = "changeme"` is left
+  alone. One rule of the mod's own sits on top: the password in `scheme://user:<password>@host`, when it
+  looks random.
 - **Same value, same placeholder**: the placeholder's id is a hash of the value, so earlier turns stay
   byte-for-byte the same and the prompt cache keeps working.
 - **Memory only**: the map from placeholder to value is held for the session and never written to disk.
@@ -350,8 +352,21 @@ and tool-use blocks are never changed; the engine pins them.
   verdict on a call that holds a placeholder. Approve such a call yourself, or leave auto mode.
 - **Writing placeholders**: the model cannot write placeholder text into a file. A known placeholder turns
   into the real value; an unknown one (`{{SECRET_...}}` with any other id) refuses the call.
-- **Patterns, not judgement**: the rules are regular expressions, so expect the odd false positive. Emails
-  and other personal data are not masked.
+- **Patterns, not judgement**: the rules are regular expressions, so expect the odd false positive, and in
+  auto mode every masked value a tool call uses needs your approval. Emails and other personal data are not
+  masked.
+
+### Updating the rules
+
+`hooks/gitleaks-rules.ts` is generated. To take a newer gitleaks rule set:
+
+```sh
+bun secret-mask/scripts/import-gitleaks.ts           # the commit pinned in the script
+bun secret-mask/scripts/import-gitleaks.ts <sha>     # another gitleaks commit
+```
+
+The script downloads `config/gitleaks.toml` and `LICENSE` at that commit, converts the Go regexes to
+JavaScript, compiles each one, and lists the rules it left out in the generated file's header.
 
 ## Development
 
@@ -391,6 +406,13 @@ These come from the mods API, not from the mods:
   past personal mods, so secret-mask cannot mask them.
 - **Tool names**: Claude Code lists a tool a mod registers as `mcp__<mod>__<tool>`, so diagram-mod's tool is
   `mcp__diagram-mod__show_diagram` though no MCP server is involved.
+
+## Credits
+
+secret-mask's detection rules are converted from [gitleaks](https://github.com/gitleaks/gitleaks)'
+[`config/gitleaks.toml`](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml),
+Copyright (c) 2019 Zachary Rice, MIT License. Its license is in
+[`secret-mask/LICENSE-gitleaks`](secret-mask/LICENSE-gitleaks).
 
 ## License
 
