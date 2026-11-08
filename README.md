@@ -1,9 +1,9 @@
 # my-claude-code-mods
 
-Seven mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
+Eight mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
 screenshots, boxed cards for tool calls, a keepalive for the prompt cache, a weekly calendar of your
-sessions, animated diagrams Claude can draw in the transcript, and a sidebar for finding and resuming
-sessions.
+sessions, animated diagrams Claude can draw in the transcript, a sidebar for finding and resuming
+sessions, and masking that keeps secrets away from the model.
 
 Mods are Claude Code plugins built from function hooks. They need **Claude Code 2.1.287 or newer**. Mods
 are an early-access feature: the hooks API can change between releases.
@@ -17,6 +17,7 @@ are an early-access feature: the hooks API can change between releases.
 | [`week-calendar`](#week-calendar) | `/week` draws a calendar of the week's sessions with commits, hours per project, and a 3-line report |
 | [`diagram-mod`](#diagram-mod) | Gives Claude a `show_diagram` tool: animated diagrams that play a story step by step, with packets, gauges and a live log |
 | [`session-browser`](#session-browser) | A sidebar of every session from every folder, folded per folder and searchable; a click resumes one |
+| [`secret-mask`](#secret-mask) | Replaces secrets with placeholders before the model sees them, and puts the real values back when a tool runs |
 
 ## Install
 
@@ -32,7 +33,7 @@ are an early-access feature: the hooks API can change between releases.
    ```json
    {
      "env": {
-       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar:~/.claude/mods/diagram-mod:~/.claude/mods/session-browser"
+       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar:~/.claude/mods/diagram-mod:~/.claude/mods/session-browser:~/.claude/mods/secret-mask"
      }
    }
    ```
@@ -307,6 +308,49 @@ The sidebar reads `~/.claude/projects/*/*.jsonl` each time it opens (`↻` reads
 larger than the 4 MiB a mod may read at once, so two `grep` passes pull out each session's titles and
 working directory. Subagent transcripts are left out.
 
+## secret-mask
+
+Keys, tokens and passwords in what you send and in what tools print are replaced with placeholders before
+the model sees them. When the model uses a placeholder in a tool call, the real value goes back in just
+before the tool runs, so commands and edits still work on the real secret.
+
+```
+tool output:  key AKIAQ3EXAMPLE7KEY2ZZ
+model sees:   key {{SECRET_AWS_KEY_ID_1mj8f9v0y43b}}
+model runs:   aws configure set key {{SECRET_AWS_KEY_ID_1mj8f9v0y43b}}
+Bash runs:    aws configure set key AKIAQ3EXAMPLE7KEY2ZZ
+```
+
+- **What it finds**: private keys, AWS key IDs and secret keys, GitLab and GitHub tokens, Slack tokens and
+  webhooks, Anthropic, OpenAI, Google and Stripe keys, JWTs, passwords in URLs, and quoted values assigned to
+  names like `password`, `token` or `api_key`. The last two only when the value looks random:
+  `password = "changeme"` is left alone.
+- **Same value, same placeholder**: the placeholder's id is a hash of the value, so earlier turns stay
+  byte-for-byte the same and the prompt cache keeps working.
+- **Memory only**: the map from placeholder to value is held for the session and never written to disk.
+  It survives a mod reload, not a restart.
+- **Fails closed**: if masking a row fails, the row goes to the model without its text. A placeholder the
+  mod does not know (after a restart) refuses the tool call and tells the model to ask you for the value.
+- **Status line**: `secret-mask: N masked` counts the values held this session.
+
+### How it works
+
+A `session.append` hook masks every row before it is stored or sent: prompts, tool results (Read, Bash,
+MCP tools) and subagent rows. A `tool.call` hook puts the real values back into the tool's input. Thinking
+and tool-use blocks are never changed; the engine pins them.
+
+### What it does not cover
+
+- **Rows that skip personal mods**: files attached with `@file`, CLAUDE.md, skill bodies and other rows
+  Claude Code adds itself. Claude Code's built-in security plugin hands those rows on past personal mods.
+  Read a file with the Read tool instead of `@file` when it may hold secrets.
+- **Auto mode**: auto mode reviews a tool call before the mod puts the real values in, so it gives no
+  verdict on a call that holds a placeholder. Approve such a call yourself, or leave auto mode.
+- **Writing placeholders**: the model cannot write placeholder text into a file. A known placeholder turns
+  into the real value; an unknown one (`{{SECRET_...}}` with any other id) refuses the call.
+- **Patterns, not judgement**: the rules are regular expressions, so expect the odd false positive. Emails
+  and other personal data are not masked.
+
 ## Development
 
 Each mod is a folder:
@@ -341,6 +385,8 @@ These come from the mods API, not from the mods:
   the `ttl` setting.
 - **Resuming across folders**: a session cannot change its working directory, so session-browser copies a
   command for a session from another folder instead of switching to it.
+- **Rows a mod cannot rewrite**: attachments, CLAUDE.md, skill bodies and compaction summaries pass on
+  past personal mods, so secret-mask cannot mask them.
 - **Tool names**: Claude Code lists a tool a mod registers as `mcp__<mod>__<tool>`, so diagram-mod's tool is
   `mcp__diagram-mod__show_diagram` though no MCP server is involved.
 

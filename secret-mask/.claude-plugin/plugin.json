@@ -1,0 +1,6 @@
+{
+  "name": "secret-mask",
+  "version": "0.1.0",
+  "description": "Masks secrets before they reach the model and puts the real values back in tool calls",
+  "types": "./types/index.d.ts"
+}
