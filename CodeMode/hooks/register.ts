@@ -41,7 +41,7 @@ const DESCRIPTION = `Run JavaScript that calls your other tools and return only 
 - MCP search, list and query tools often return over 10K characters (alert definitions, logs, JSON). Call them from a script and return only the fields you need.
 - \`search("query")\` finds a tool and its exact path.
 - A chain: \`const hits = (await tools.Bash({ command: "rg -n -m2 'createUser' src" })).text.trim().split("\\n"); return Promise.all(hits.map(h => { const [f, n] = h.split(":"); return tools.Bash({ command: "sed -n " + Math.max(1, n - 5) + "," + (+n + 15) + "p " + f }).then(r => h + "\\n" + r.text) }))\`
-- A slice: \`const r = await tools["mcp__server__search_alert_definitions"]({ query: "gunicorn" }); return r.text.split("\\n").filter(l => /name|query/i.test(l)).slice(0, 40)\``
+- A slice: \`const r = await tools["mcp__logs__search_alerts"]({ name: "checkout" }); return r.text.split("\\n").filter(l => /name|query/i.test(l)).slice(0, 40)\``
 
 // After a direct call, a one-line hint where a script would have cost less: the big-output one once in each agent loop,
 // the chain one on each new streak of single reads, up to CHAIN_HINTS times, since long loops keep chaining after one.

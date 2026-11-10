@@ -229,12 +229,12 @@ test('an MCP card header names the bare tool and its server like a Bash descript
       props: { tool_use_id: 'toolu_6', tool, input: {}, isRunning: true, isErrored: false, isInterrupted: false },
       viewport: { columns: 120, rows: 40 },
     })
-  const gw = await header('mcp__employee-central-engineering__coralogix-mcp___query_dataprime')
-  expect(await gw.find({ text: '→ query_dataprime' })).toBeDefined()
-  expect(await gw.find({ text: 'coralogix-mcp · employee-central-engineering' })).toBeDefined()
-  const plain = await header('mcp__infra-copilot-prod__aws_read')
+  const gw = await header('mcp__team-gateway__logs-mcp___query_logs')
+  expect(await gw.find({ text: '→ query_logs' })).toBeDefined()
+  expect(await gw.find({ text: 'logs-mcp · team-gateway' })).toBeDefined()
+  const plain = await header('mcp__cloud-tools__aws_read')
   expect(await plain.find({ text: '→ aws_read' })).toBeDefined()
-  expect(await plain.find({ text: 'infra-copilot-prod' })).toBeDefined()
+  expect(await plain.find({ text: 'cloud-tools' })).toBeDefined()
 })
 
 test('a built-in tool puts its summary in the header note; Bash and MCP keep theirs', async ($, on) => {

@@ -6,7 +6,7 @@ script can chain calls, filter what they return, and give back only the answer. 
 does not go into the context.
 
 ```js
-const r = await tools["mcp__gw__coralogix-mcp___search_alert_definitions"]({ name: ["gunicorn"] })
+const r = await tools["mcp__logs__search_alerts"]({ name: "checkout" })
 return r.text.split("\n").filter(l => /name|query/i.test(l)).slice(0, 40)
 ```
 
