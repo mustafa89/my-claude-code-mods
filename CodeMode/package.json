@@ -1,0 +1,20 @@
+{
+  "name": "cc-codemod",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp pack",
+    "check": "vp check && tsrs --noEmit -p . && tsrs -p build && claude plugin validate ."
+  },
+  "dependencies": {
+    "@opencode/codemode": "2.2.7",
+    "acorn": "8.15.0",
+    "acorn-walk": "^8.3.5",
+    "shell-quote": "^1.12.0"
+  },
+  "devDependencies": {
+    "@types/shell-quote": "^1.7.5",
+    "tsrs": "^0.18.0-ts7.1.0-dev.20260929",
+    "vite-plus": "^1.4.0"
+  }
+}

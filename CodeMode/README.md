@@ -12,8 +12,8 @@ return r.text.split("\n").filter(l => /name|query/i.test(l)).slice(0, 40)
 
 This is a modified copy of [cc-codemod](https://github.com/darjss/claude-code-codemode) v0.8.2 (commit
 `57334d4`) by darjss, MIT License. The script runs on opencode's code mode interpreter
-(`@opencode/codemode`), bundled with Effect and acorn in `hooks/runtime.js`, `vendor.js`, `effect.js` and
-`acorn.js`. See [`LICENSE`](LICENSE) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+(`@opencode/codemode` 2.2.7), bundled with Effect 4.1.0 and acorn in `hooks/runtime.js`, `vendor.js`,
+`effect.js` and `acorn.js`. See [`LICENSE`](LICENSE) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## When it helps
 
@@ -32,12 +32,17 @@ saves none.
   [tool-cards](../tool-cards), the card shows the script and puts this line in its footer.
 
 Each nested call resolves to `{ text, isError, result }`. A failed or denied call does not throw. Limits: 200
-nested calls and 100 KB of output for each run. The language has no classes, imports, timers or fetch.
+nested calls and 100 KB of output for each run. The language has no classes, imports, timers, fetch or `Intl`.
+
+`tools` holds the tools Claude can call now. A deferred MCP tool shows up only after Claude loads it with
+ToolSearch; a script that names it before then fails with `UnknownTool`. `search({ query })` lists the tools
+a script can call.
 
 ## Safety
 
 - **Permissions**: each nested call goes through Claude Code's hooks and permission checks, one at a time. In
-  auto mode, the classifier judges each call. [secret-mask](../secret-mask) masks nested output too.
+  auto mode, the classifier judges each call. [secret-mask](../secret-mask) masks what the script returns, the
+  only part that reaches the model.
 - **Early starts**: read-only calls with literal arguments at the top level start before the script reaches
   them. A call starts early only when Claude Code holds it read-only and does not deny it. `git -C` counts as
   a read only in repos under `~/code`.
@@ -63,5 +68,27 @@ After a direct call where a script would have cost less, the next turn gets one 
 - Hint limits apply to each turn, not to the whole session. A turn's state is dropped when it ends, so
   subagents do not leave entries behind.
 - `ToolSearch`, `Agent` and other tools a script cannot call no longer count toward the single-read streak.
+- A `run` call ends the single-read streak, and image results count as markers, not base64, for the size hint.
 - `git -C` counts as a read in repos under `~/code` (was `~/dev` and `~/.t3/worktrees`).
+- The tool description shows `search({ query })` (it said `search("query")`, which fails) and says to load
+  a deferred MCP tool with ToolSearch first.
+- The bundle is rebuilt with `@opencode/codemode` 2.2.7 and Effect 4.1.0 (was 2.1.4 and 4.0.1). A build
+  step drops 2.2's experimental bytecode VM (`engine: "vm"`), which it loads with a dynamic import that the
+  mod loader refuses. The mod uses the default engine.
 - Renamed to CodeMode, so the tool is `mcp__CodeMode__run`.
+
+## Build
+
+The bundle is built from `build/runtime.ts` with the dependencies pinned in `package.json` and `bun.lock`:
+
+```sh
+claude --plugin-dir ./CodeMode -p "hi"   # once: Claude Code writes .claude-plugin/types and tsconfig.json
+cd CodeMode
+bun install --frozen-lockfile --ignore-scripts
+./node_modules/.bin/vp pack            # writes hooks/runtime.js, vendor.js, effect.js, acorn.js
+```
+
+`vp` is [Vite+](https://viteplus.dev), from `devDependencies`. `vite.config.ts` minifies the bundle, splits
+it so each file stays under the plugin directory's 256 KiB limit, writes it as ASCII, escapes `import(` in
+strings (the mod loader refuses that text), and drops the VM engine. The same steps on cc-codemod's own
+lockfile rebuild its shipped bundle byte for byte.
