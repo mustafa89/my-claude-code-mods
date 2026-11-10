@@ -3,10 +3,14 @@
   "version": "0.8.2",
   "types": "./types/index.d.ts",
   "description": "Code mode for Claude Code: one tool that runs a JavaScript script over Claude's own tools and returns only the answer",
-  "author": {
-    "name": "darjss"
-  },
-  "repository": "https://github.com/darjss/claude-code-codemode",
   "license": "MIT",
-  "keywords": ["code mode", "codemode", "claude code", "tools", "javascript", "context", "tokens"]
+  "keywords": [
+    "code mode",
+    "codemode",
+    "claude code",
+    "tools",
+    "javascript",
+    "context",
+    "tokens"
+  ]
 }

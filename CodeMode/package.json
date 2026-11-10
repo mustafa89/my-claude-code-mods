@@ -1,5 +1,5 @@
 {
-  "name": "cc-codemod",
+  "name": "codemode",
   "private": true,
   "type": "module",
   "scripts": {

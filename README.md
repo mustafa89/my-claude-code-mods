@@ -402,7 +402,7 @@ return r.text.split("\n").filter(l => /name|query/i.test(l)).slice(0, 40)
 - **Hints**: after a direct MCP or Bash output of more than 10K characters, or 3 single-read turns in a row,
   the next turn gets one line that suggests a script.
 
-CodeMode is a modified copy of [cc-codemod](https://github.com/darjss/claude-code-codemode) by darjss. The
+CodeMode is a modified copy of an MIT-licensed Claude Code mod. The
 changes are listed in [`CodeMode/README.md`](CodeMode/README.md): T3 Code parts removed, hints fixed for MCP
 output and reset each turn, and the tool renamed.
 
@@ -452,8 +452,8 @@ secret-mask's detection rules are converted from [gitleaks](https://github.com/g
 Copyright (c) 2019 Zachary Rice, MIT License. Its license is in
 [`secret-mask/LICENSE-gitleaks`](secret-mask/LICENSE-gitleaks).
 
-CodeMode is based on [cc-codemod](https://github.com/darjss/claude-code-codemode) v0.8.2 by darjss, MIT
-License. Its bundled runtime holds [`@opencode/codemode`](https://github.com/anomalyco/opencode/tree/dev/packages/codemode),
+CodeMode is based on an MIT-licensed Claude Code mod; its copyright notice is in
+[`CodeMode/LICENSE`](CodeMode/LICENSE). Its bundled runtime holds [`@opencode/codemode`](https://github.com/anomalyco/opencode/tree/dev/packages/codemode),
 [Effect](https://github.com/Effect-TS/effect) and [acorn](https://github.com/acornjs/acorn), each MIT License.
 See [`CodeMode/LICENSE`](CodeMode/LICENSE) and [`CodeMode/THIRD_PARTY_NOTICES.md`](CodeMode/THIRD_PARTY_NOTICES.md).
 

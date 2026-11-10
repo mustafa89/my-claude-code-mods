@@ -10,8 +10,8 @@ const r = await tools["mcp__logs__search_alerts"]({ name: "checkout" })
 return r.text.split("\n").filter(l => /name|query/i.test(l)).slice(0, 40)
 ```
 
-This is a modified copy of [cc-codemod](https://github.com/darjss/claude-code-codemode) v0.8.2 (commit
-`57334d4`) by darjss, MIT License. The script runs on opencode's code mode interpreter
+CodeMode is a modified copy of an MIT-licensed Claude Code mod; its original copyright notice is in
+[`LICENSE`](LICENSE). The script runs on opencode's code mode interpreter
 (`@opencode/codemode` 2.2.7), bundled with Effect 4.1.0 and acorn in `hooks/runtime.js`, `vendor.js`,
 `effect.js` and `acorn.js`. See [`LICENSE`](LICENSE) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
@@ -58,7 +58,7 @@ After a direct call where a script would have cost less, the next turn gets one 
 - after 3 turns in a row that each made one read, up to 3 times in each turn. `ToolSearch`, `Agent` and other
   tools that a script cannot call do not count.
 
-## Changes from cc-codemod
+## Changes from the original mod
 
 - Removed the T3 Code parts: the `html_render` guard, its description lines, and the `t3_thread_read`
   example.
@@ -90,5 +90,5 @@ bun install --frozen-lockfile --ignore-scripts
 
 `vp` is [Vite+](https://viteplus.dev), from `devDependencies`. `vite.config.ts` minifies the bundle, splits
 it so each file stays under the plugin directory's 256 KiB limit, writes it as ASCII, escapes `import(` in
-strings (the mod loader refuses that text), and drops the VM engine. The same steps on cc-codemod's own
+strings (the mod loader refuses that text), and drops the VM engine. The same steps on the original mod's own
 lockfile rebuild its shipped bundle byte for byte.
