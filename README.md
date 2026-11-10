@@ -1,9 +1,10 @@
 # my-claude-code-mods
 
-Eight mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
+Nine mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
 screenshots, boxed cards for tool calls, a keepalive for the prompt cache, a weekly calendar of your
 sessions, animated diagrams Claude can draw in the transcript, a sidebar for finding and resuming
-sessions, and masking that keeps secrets away from the model.
+sessions, masking that keeps secrets away from the model, and a code mode tool that runs a script over
+Claude's own tools.
 
 Mods are Claude Code plugins built from function hooks. They need **Claude Code 2.1.287 or newer**. Mods
 are an early-access feature: the hooks API can change between releases.
@@ -18,6 +19,7 @@ are an early-access feature: the hooks API can change between releases.
 | [`diagram-mod`](#diagram-mod) | Gives Claude a `show_diagram` tool: animated diagrams that play a story step by step, with packets, gauges and a live log |
 | [`session-browser`](#session-browser) | A sidebar of every session from every folder, folded per folder and searchable; a click resumes one |
 | [`secret-mask`](#secret-mask) | Replaces secrets with placeholders before the model sees them, and puts the real values back when a tool runs |
+| [`CodeMode`](#codemode) | Gives Claude a `run` tool: a JavaScript script that calls Claude's other tools and returns only the answer |
 
 ## Install
 
@@ -33,7 +35,7 @@ are an early-access feature: the hooks API can change between releases.
    ```json
    {
      "env": {
-       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar:~/.claude/mods/diagram-mod:~/.claude/mods/session-browser:~/.claude/mods/secret-mask"
+       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar:~/.claude/mods/diagram-mod:~/.claude/mods/session-browser:~/.claude/mods/secret-mask:~/.claude/mods/CodeMode"
      }
    }
    ```
@@ -116,6 +118,8 @@ Every tool call becomes a card:
 - **Footer**: how long the call took, how many words it printed, and the Bash timeout if one was set.
 - **Diagrams** from [diagram-mod](#diagram-mod): a rounded card headed `◇ diagram`, as wide as the diagram,
   with the animation inside and `▴ collapse` / `▾ expand`.
+- **Scripts** from [CodeMode](#codemode): the first 8 lines of the script with line numbers, the output
+  folded as for MCP tools, and the script's call summary (`⚙ 4 tool calls · 3 started early`) in the footer.
 
 Claude Code normally folds runs of reads and searches into one line (`Searched for 2 patterns`).
 tool-cards unfolds them, so each call gets its own card.
@@ -375,6 +379,33 @@ bun secret-mask/scripts/import-gitleaks.ts <sha>     # another gitleaks commit
 The script downloads `config/gitleaks.toml` and `LICENSE` at that commit, converts the Go regexes to
 JavaScript, compiles each one, and lists the rules it left out in the generated file's header.
 
+## CodeMode
+
+Claude gets one more tool, `mcp__CodeMode__run`. It takes a JavaScript function body in which every tool
+Claude has is an async function: `tools.Bash`, `tools.Read`, and every MCP tool. The script calls the
+tools, filters what they return, and gives back only the answer. The raw output of those calls does not go
+into the context.
+
+```js
+const r = await tools["mcp__gw__coralogix-mcp___search_alert_definitions"]({ name: ["gunicorn"] })
+return r.text.split("\n").filter(l => /name|query/i.test(l)).slice(0, 40)
+```
+
+- **When it helps**: a big output when you need only part of it (MCP search, list and query tools often
+  return more than 10K characters), and a chain of reads where one call's output decides the next. Each turn
+  re-reads the whole context, so a chain in one script costs one turn.
+- **When it does not**: one call whose whole output you need, or a small edit. There the script adds tokens.
+- **Permissions**: each call inside a script goes through Claude Code's hooks and permission checks, like a
+  direct call. secret-mask masks their output too.
+- **Early starts**: read-only calls with literal arguments start before the script reaches them, so `await`
+  after `await` still runs in parallel.
+- **Hints**: after a direct MCP or Bash output of more than 10K characters, or 3 single-read turns in a row,
+  the next turn gets one line that suggests a script.
+
+CodeMode is a modified copy of [cc-codemod](https://github.com/darjss/claude-code-codemode) by darjss. The
+changes are listed in [`CodeMode/README.md`](CodeMode/README.md): T3 Code parts removed, hints fixed for MCP
+output and reset each turn, and the tool renamed.
+
 ## Development
 
 Each mod is a folder:
@@ -420,6 +451,11 @@ secret-mask's detection rules are converted from [gitleaks](https://github.com/g
 [`config/gitleaks.toml`](https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml),
 Copyright (c) 2019 Zachary Rice, MIT License. Its license is in
 [`secret-mask/LICENSE-gitleaks`](secret-mask/LICENSE-gitleaks).
+
+CodeMode is based on [cc-codemod](https://github.com/darjss/claude-code-codemode) v0.8.2 by darjss, MIT
+License. Its bundled runtime holds [`@opencode/codemode`](https://github.com/anomalyco/opencode/tree/dev/packages/codemode),
+[Effect](https://github.com/Effect-TS/effect) and [acorn](https://github.com/acornjs/acorn), each MIT License.
+See [`CodeMode/LICENSE`](CodeMode/LICENSE) and [`CodeMode/THIRD_PARTY_NOTICES.md`](CodeMode/THIRD_PARTY_NOTICES.md).
 
 ## License
 
