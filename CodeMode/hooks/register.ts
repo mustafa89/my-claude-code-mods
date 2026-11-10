@@ -39,7 +39,8 @@ const DESCRIPTION = `Run JavaScript that calls your other tools and return only 
 - Top-level \`const\` and \`let\` values are kept for the session as JSON. A later run can use them by name, so fetch once and filter again without re-reading.
 - Filter before returning: slice lines, match a regex, count, pick fields. The return value and console.log lines are all that reaches your context, plus any images the nested calls returned.
 - MCP search, list and query tools often return over 10K characters (alert definitions, logs, JSON). Call them from a script and return only the fields you need.
-- \`search("query")\` finds a tool and its exact path.
+- \`search({ query: "..." })\` finds a tool and its exact path.
+- \`tools\` holds the tools you can call now. A deferred MCP tool appears only after you load it with ToolSearch, so load it before the script names it.
 - A chain: \`const hits = (await tools.Bash({ command: "rg -n -m2 'createUser' src" })).text.trim().split("\\n"); return Promise.all(hits.map(h => { const [f, n] = h.split(":"); return tools.Bash({ command: "sed -n " + Math.max(1, n - 5) + "," + (+n + 15) + "p " + f }).then(r => h + "\\n" + r.text) }))\`
 - A slice: \`const r = await tools["mcp__logs__search_alerts"]({ name: "checkout" }); return r.text.split("\\n").filter(l => /name|query/i.test(l)).slice(0, 40)\``
 
@@ -132,12 +133,15 @@ export const register: Register = on => {
     const r = await next(e).finally(() => {
       loop.inFlight -= 1
     })
-    // Calls a script can't make (ToolSearch, Agent, ...) leave the streak where it was.
-    if (loop.inFlight === 0 && !NO_HINT.has(e.tool)) loop.streak =loop.calls === 1 && r.isReadOnly === true ? loop.streak + 1 : 0
+    // A script ends a streak. Other calls a script can't make (ToolSearch, Agent, ...) leave it where it was.
+    if (loop.inFlight === 0 && e.tool === SELF) loop.streak = 0
+    else if (loop.inFlight === 0 && !NO_HINT.has(e.tool))
+      loop.streak = loop.calls === 1 && r.isReadOnly === true ? loop.streak + 1 : 0
     if (r.deny !== undefined || NO_HINT.has(e.tool)) return r
     const hints: string[] = []
-    // MCP tools may answer with structured `result` and no `text`; measure what the model reads either way.
-    const shown = r.text ?? JSON.stringify(r.result ?? '')
+    // MCP tools may answer with structured `result` and no `text`; measure what the model reads either way, with
+    // images counted as markers, since their base64 reaches the model as an image and a script can't slice it.
+    const shown = r.text ?? JSON.stringify(plain(r.result) ?? '')
     const chars = shown.length
     const persisted = SPILL.test(shown)
     if ((chars > HINT_CHARS || persisted) && !loop.big) {
