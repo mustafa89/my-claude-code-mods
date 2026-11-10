@@ -253,3 +253,34 @@ test('a built-in tool puts its summary in the header note; Bash and MCP keep the
   expect(await mcp.find({ text: 'gw' })).toBeDefined()
   expect(await mcp.find({ text: 'execution_id=abc' })).toBeDefined()
 })
+
+test('a CodeMode run card shows the script and moves its call summary into the footer', async ($, on) => {
+  on('session.cwd', () => ({ value: '/repo' }))
+  const script = ['const a = 1', 'const b = 2', 'const c = 3', 'const d = 4', 'const e = 5', 'const f = 6', 'const g = 7', 'const h = 8', 'const i = 9', 'return a + i'].join('\n')
+  const card = await $.ui.mount({
+    plugin: 'tool-cards',
+    surface: 'terminal',
+    component: 'ToolUse',
+    props: {
+      tool_use_id: 'toolu_9',
+      tool: 'mcp__CodeMode__run',
+      input: { code: script },
+      isRunning: false,
+      isErrored: false,
+      isInterrupted: false,
+      output: [{ type: 'text', text: 'ten apples\n[3 tool calls · 2 started early]' }],
+    },
+    viewport: { columns: 120, rows: 40 },
+  })
+  expect(await card.find({ text: '→ run' })).toBeDefined()
+  expect(await card.find({ text: 'CodeMode' })).toBeDefined()
+  expect(await card.find({ text: 'const a = 1' })).toBeDefined()
+  expect(await card.find({ text: 'const h = 8' })).toBeDefined()
+  expect(await card.find({ text: 'const i = 9' })).toBeUndefined()
+  expect(await card.find({ text: '    … 2 more lines' })).toBeDefined()
+  expect(await card.find({ text: /^code=/ })).toBeUndefined()
+  expect(await card.find({ text: '⚙ 3 tool calls · 2 started early · ✎ ~2 words' })).toBeDefined()
+  await card.press({ key: 'toggle-toolu_9' })
+  expect(await card.find({ text: 'ten apples' })).toBeDefined()
+  expect(await card.find({ text: '[3 tool calls · 2 started early]' })).toBeUndefined()
+})

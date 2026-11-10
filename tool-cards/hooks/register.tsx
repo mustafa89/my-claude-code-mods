@@ -23,6 +23,10 @@ const PREVIEW_LINES = 5
 // An expanded card stops here; beyond it the output is better read in a file.
 const FULL_LINES = 400
 const COMMAND_LINES = 3
+// CodeMode's run tool: its card shows the script, and moves the mod's `[N tool calls · …]` summary into the footer.
+const CODEMODE = 'mcp__CodeMode__run'
+const SCRIPT_LINES = 8
+const CODEMODE_SUMMARY = /\n?\[(\d+ tool calls[^\]\n]*)\]\s*$/
 const KEEP_TIMES = 300
 const ANSI = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g
 
@@ -509,7 +513,24 @@ export const register: Register = on => {
       }
       if (typeof input.timeout === 'number') footer.push(`■ timeout ${duration(input.timeout).replace('.00', '')}`)
     } else {
-      const args = mcp ? summary(p.tool, input, await $.session.cwd()) : undefined
+      const isScript = p.tool === CODEMODE
+      if (isScript) {
+        const scriptLines = (str(input.code) ?? '').replace(/\s+$/, '').split('\n')
+        body.push(
+          <Box key="code" flexDirection="column">
+            {scriptLines.slice(0, SCRIPT_LINES).map((line, i) => (
+              <Box key={`s${i}`}>
+                <Box width={4} flexShrink={0}>
+                  <Text color={C.muted}>{String(i + 1).padStart(2)}</Text>
+                </Box>
+                <Text color={C.text} wrap="wrap">{line}</Text>
+              </Box>
+            ))}
+            {scriptLines.length > SCRIPT_LINES ? <Text color={C.muted}>{`    … ${scriptLines.length - SCRIPT_LINES} more lines`}</Text> : null}
+          </Box>,
+        )
+      }
+      const args = mcp && !isScript ? summary(p.tool, input, await $.session.cwd()) : undefined
       if (args) {
         body.push(
           <Text key="args" color={C.arg} wrap="wrap">
@@ -530,7 +551,12 @@ export const register: Register = on => {
         const count = (v: unknown) => (Array.isArray(v) ? v.length : 0)
         footer.push(`${count(input.nodes)} nodes · ${count(input.edges)} edges`)
       } else if (isMcp(p.tool) && !p.isRunning) {
-        const text = mcpText(p.output)
+        let text = mcpText(p.output)
+        const ran = isScript ? CODEMODE_SUMMARY.exec(text) : null
+        if (ran) {
+          text = text.slice(0, ran.index)
+          footer.push(`⚙ ${ran[1]}`)
+        }
         const isErr = p.isErrored || (p.output as { isError?: unknown } | undefined)?.isError === true
         body.push(rule)
         body.push(outputBlock($, ui, p.tool_use_id, lines(text).map(t => ({ text: t, isErr })), isFull, 0))
