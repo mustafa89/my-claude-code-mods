@@ -1,0 +1,5 @@
+{
+  "name": "new-resume",
+  "version": "0.1.0",
+  "description": "/new-resume: condense this session's transcript and open a fresh Claude Code that reads it, with no model call in the old session"
+}

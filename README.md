@@ -1,10 +1,10 @@
 # my-claude-code-mods
 
-Nine mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
+Ten mods for [Claude Code](https://code.claude.com): a one-line status bar, image previews for pasted
 screenshots, boxed cards for tool calls, a keepalive for the prompt cache, a weekly calendar of your
 sessions, animated diagrams Claude can draw in the transcript, a sidebar for finding and resuming
-sessions, masking that keeps secrets away from the model, and a code mode tool that runs a script over
-Claude's own tools.
+sessions, masking that keeps secrets away from the model, a code mode tool that runs a script over
+Claude's own tools, and a handoff to a fresh session that replaces `/compact`.
 
 Mods are Claude Code plugins built from function hooks. They need **Claude Code 2.1.287 or newer**. Mods
 are an early-access feature: the hooks API can change between releases.
@@ -20,6 +20,7 @@ are an early-access feature: the hooks API can change between releases.
 | [`session-browser`](#session-browser) | A sidebar of every session from every folder, folded per folder and searchable; a click resumes one |
 | [`secret-mask`](#secret-mask) | Replaces secrets with placeholders before the model sees them, and puts the real values back when a tool runs |
 | [`CodeMode`](#codemode) | Gives Claude a `run` tool: a JavaScript script that calls Claude's other tools and returns only the answer |
+| [`new-resume`](#new-resume) | `/new-resume` opens a fresh session that reads a condensed copy of this one, with no model request in the old session |
 
 ## Install
 
@@ -35,7 +36,7 @@ are an early-access feature: the hooks API can change between releases.
    ```json
    {
      "env": {
-       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar:~/.claude/mods/diagram-mod:~/.claude/mods/session-browser:~/.claude/mods/secret-mask:~/.claude/mods/CodeMode"
+       "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slick-bar:~/.claude/mods/image-peek:~/.claude/mods/tool-cards:~/.claude/mods/cache-warm:~/.claude/mods/week-calendar:~/.claude/mods/diagram-mod:~/.claude/mods/session-browser:~/.claude/mods/secret-mask:~/.claude/mods/CodeMode:~/.claude/mods/new-resume"
      }
    }
    ```
@@ -405,6 +406,54 @@ return r.text.split("\n").filter(l => /name|query/i.test(l)).slice(0, 40)
 CodeMode is a modified copy of an MIT-licensed Claude Code mod. The
 changes are listed in [`CodeMode/README.md`](CodeMode/README.md): T3 Code parts removed, hints fixed for MCP
 output and reset each turn, and the tool renamed.
+
+## new-resume
+
+When a session's context is nearly full, `/new-resume` hands the work to a fresh session:
+
+1. A script reads this session's transcript from `~/.claude/projects/` and writes a condensed copy to
+   `~/.claude/handoffs/<session-id>.md`.
+2. A new Claude Code starts in the same folder with a prompt to read that copy, summarise where the work
+   stands, and wait for you.
+
+Text after the command goes to the new session as notes: `/new-resume focus on the failing test`.
+
+### Why not `/compact`
+
+`/compact` asks the model to summarise the conversation, so it sends the whole context as one more request
+from the old session. That has three costs:
+
+- **A cold cache makes it expensive.** After an idle hour the cache has expired, and the summary request
+  writes the whole conversation again. On a 900k-token chat with the 1-hour cache, that write costs as much
+  as 1.8M input tokens, before the summary is even written. On a subscription plan, that comes out of your
+  usage limits.
+- **You cannot choose what survives.** The model writes the summary, and the details it drops are gone from
+  the session. Long sessions often compact more than once, and each summary is built on the one before.
+- **It runs at the worst moment.** Auto-compact starts near the context limit, usually in the middle of a task.
+
+`/new-resume` sends no request from the old session. The slash command runs inside the mod, so the old
+context is never sent again, warm cache or cold. The only model cost is the new session reading the
+condensed copy: about 25k–50k tokens for a 50 MB transcript, under 3% of the cold compaction above.
+
+### What the copy keeps
+
+| Kept | Left out |
+|---|---|
+| Every prompt you typed (up to 6,000 characters each, middle cut beyond) | Tool results |
+| Claude's replies (up to 4,000 characters each) | Thinking |
+| One line per tool call: tool name and its main argument | Attachments, system reminders, metadata |
+| Tool errors, and earlier compaction summaries | Subagent transcripts |
+
+The header lists the files edited and the path of the full transcript. The new session is told to grep that
+file when it needs a tool result, and never to read it whole.
+
+### Where the new session opens
+
+- **Inside the Rex terminal** (`REX_SESSION` is set): in a new tab of the current Rex session, in the same folder.
+- **Elsewhere**: the start command (`cd '<folder>' && claude '<prompt>'`) is copied to the clipboard.
+
+It needs `python3`. The new session starts with your default model and permission mode, not the old
+session's.
 
 ## Development
 
