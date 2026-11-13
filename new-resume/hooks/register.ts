@@ -10,22 +10,28 @@ type Condensed = { out: string; transcript: string; chars: number; tokens: numbe
 
 const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
 
-// Claude Code can start with a PATH that lacks ~/.local/bin or Homebrew, so look for
-// the binaries by absolute path first and use the bare name only as a last resort.
-async function findBin($: Api, name: string, candidates: (string | undefined)[]) {
-  for (const path of candidates) {
-    if (path && (await $.fs.exists(path).catch(() => false))) return path
-  }
-  return name
-}
+type RunResult = { exitCode: number | null; stdout: string; stderr: string; isMissing?: boolean }
 
 // $.process.run rejects when the binary cannot start; turn that into a failed result.
-async function tryRun($: Api, argv: string[], timeoutMs = 30_000) {
+async function tryRun($: Api, argv: string[], timeoutMs: number): Promise<RunResult> {
   try {
     return await $.process.run(argv, { timeoutMs })
   } catch (err) {
-    return { exitCode: -1, stdout: '', stderr: err instanceof Error ? err.message : String(err) }
+    const stderr = err instanceof Error ? err.message : String(err)
+    return { exitCode: -1, stdout: '', stderr, isMissing: /ENOENT|not found|failed to start/i.test(stderr) }
   }
+}
+
+// Claude Code can start with a PATH that lacks ~/.local/bin or Homebrew, so try each
+// candidate binary in turn and move on only when it cannot start.
+async function runFirst($: Api, bins: (string | undefined)[], args: string[], timeoutMs = 30_000) {
+  let last: RunResult = { exitCode: -1, stdout: '', stderr: 'no candidate binary', isMissing: true }
+  for (const bin of bins) {
+    if (!bin) continue
+    last = await tryRun($, [bin, ...args], timeoutMs)
+    if (!last.isMissing) return last
+  }
+  return last
 }
 
 function handoffPrompt(id: string, c: Condensed, notes: string) {
@@ -48,26 +54,36 @@ async function newResume($: Api, notes: string) {
     $.env.get('REX_BIN_DIR'),
   ])
   const out = `${home}/.claude/handoffs/${id}.md`
-  const python = await findBin($, 'python3', ['/opt/homebrew/bin/python3', '/usr/local/bin/python3', '/usr/bin/python3'])
-  const run = await tryRun($, [python, '-I', `${$.plugin.root}/bin/condense.py`, id, out], 120_000)
+  const run = await runFirst(
+    $,
+    ['python3', '/opt/homebrew/bin/python3', '/usr/local/bin/python3', '/usr/bin/python3'],
+    ['-I', `${$.plugin.root}/bin/condense.py`, id, out],
+    120_000,
+  )
   if (run.exitCode !== 0) return { text: `new-resume: condense failed: ${(run.stderr || run.stdout).trim()}` }
   const c = JSON.parse(run.stdout.trim().split('\n').pop() ?? '{}') as Condensed
   const prompt = handoffPrompt(id, c, notes.trim())
   const summary = `Handoff written: ${c.out} (${c.turns} user turns, ~${Math.round(c.tokens / 1000)}k tokens).`
+  let rexError = ''
 
   if (rexSession) {
-    const rexBin = await findBin($, 'rex', [rexBinDir && `${rexBinDir}/rex`, `${home}/.local/bin/rex`, '/opt/homebrew/bin/rex'])
-    const rex = await tryRun($, [
-      rexBin, 'run', '-s', rexSession, '-c', cwd, '--interactive', '--label', 'claude (resumed)',
-      '--', 'claude', prompt,
-    ])
+    // ~/.local/bin/rex is the CLI the shell uses; $REX_BIN_DIR can hold an older copy
+    // without --interactive, so drop that flag when a copy refuses it.
+    const bins = [`${home}/.local/bin/rex`, '/opt/homebrew/bin/rex', rexBinDir && `${rexBinDir}/rex`, 'rex']
+    const args = (interactive: boolean) => [
+      'run', '-s', rexSession, '-c', cwd, ...(interactive ? ['--interactive'] : []),
+      '--label', 'claude (resumed)', '--', 'claude', prompt,
+    ]
+    let rex = await runFirst($, bins, args(true))
+    if (/unknown flag: --interactive/.test(rex.stderr)) rex = await runFirst($, bins, args(false))
     if (rex.exitCode === 0) return { text: `${summary}\nNew Claude Code opened in a Rex tab. Close this one when the new one has caught up.` }
-    $.ui.toast(`new-resume: rex run failed (${rex.stderr.trim()}); command copied instead`)
+    rexError = `rex run failed (exit ${rex.exitCode}): ${(rex.stderr || rex.stdout).trim().split('\n')[0]}`
   }
 
   const line = `cd ${shellQuote(cwd)} && claude ${shellQuote(prompt)}`
   const { isCopied } = await $.ui.copy({ text: line })
-  return { text: `${summary}\n${isCopied ? 'Start command copied. Paste it in a new terminal:' : 'Run this in a new terminal:'}\n${line}` }
+  const how = isCopied ? 'Start command copied. Paste it in a new terminal:' : 'Run this in a new terminal:'
+  return { text: [summary, ...(rexError ? [rexError] : []), how, line].join('\n') }
 }
 
 export const register: Register = on => {
